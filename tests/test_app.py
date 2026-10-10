@@ -147,3 +147,35 @@ def test_sync_delete_done_workout(client):
     assert client.get("/api/workouts").json()["history"] == []
     assert client.get("/api/sync/workouts").json()["workouts"] == []
     assert client.delete(f"/api/sync/workouts/{wid}").json() == {"deleted": False}  # もう ない
+
+
+def test_rest_seconds(client):
+    by_name = {e["name"]: e for e in client.get("/api/exercises").json()["exercises"]}
+    assert by_name["ベンチプレス"]["rest_seconds"] == 180  # ビッグ3
+    assert by_name["懸垂"]["rest_seconds"] == 120 and by_name["アームカール"]["rest_seconds"] == 90
+    assert by_name["ランニング"]["rest_seconds"] is None  # 有酸素は タイマーなし
+    curl = by_name["アームカール"]["id"]
+    assert client.put(f"/api/exercises/{curl}/rest", json={"seconds": 105}).json() == {"rest_seconds": 105}
+    by_name = {e["name"]: e for e in client.get("/api/exercises").json()["exercises"]}
+    assert by_name["アームカール"]["rest_seconds"] == 105  # 変えた長さを覚えている
+    assert client.put(f"/api/exercises/{curl}/rest", json={"seconds": 5}).status_code == 422
+    assert client.put(f"/api/exercises/{by_name['ランニング']['id']}/rest", json={"seconds": 60}).status_code == 404
+
+
+def test_add_missing_columns(tmp_path, monkeypatch):
+    """前からあるテーブルに、あとから足した列が 自動で足される（データは消えない）。"""
+    from sqlalchemy import inspect, text
+    from sqlmodel import create_engine
+
+    from app import db
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'old.db'}")
+    with engine.begin() as conn:  # rest_seconds と warmup_sets が まだない、古い形のテーブル
+        conn.execute(text("CREATE TABLE exercise (id INTEGER PRIMARY KEY, name VARCHAR NOT NULL, part VARCHAR NOT NULL, mets FLOAT, mets_estimated BOOLEAN NOT NULL, preset BOOLEAN NOT NULL, created_at DATETIME NOT NULL)"))
+        conn.execute(text("INSERT INTO exercise VALUES (1, 'ベンチプレス', 'chest', 6.0, 1, 1, '2026-10-01 00:00:00')"))
+    monkeypatch.setattr(db, "engine", engine)
+    assert sorted(db.add_missing_columns()) == ["exercise.rest_seconds", "exercise.warmup_sets"]
+    assert db.add_missing_columns() == []  # 2回目は 何もしない
+    with engine.begin() as conn:
+        assert {"rest_seconds", "warmup_sets"} <= {c["name"] for c in inspect(conn).get_columns("exercise")}
+        assert conn.execute(text("SELECT name, warmup_sets, rest_seconds FROM exercise")).one() == ("ベンチプレス", 0, None)

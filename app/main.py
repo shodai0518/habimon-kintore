@@ -62,6 +62,10 @@ class FinishInput(BaseModel):
     ended_at: datetime | None = None
 
 
+class RestInput(BaseModel):
+    seconds: int = Field(ge=config.REST_MIN_SECONDS, le=config.REST_MAX_SECONDS)
+
+
 class ExerciseInput(BaseModel):
     name: str = Field(min_length=1, max_length=30)
     part: PartKey
@@ -97,13 +101,24 @@ def done_sets(session: Session, exercise_id: int, before: datetime | None = None
     return list(grouped.values())
 
 
+def rest_seconds(ex: Exercise) -> int | None:
+    """セットの間の休憩（秒）。自分で変えていれば それ、なければ 決まった長さ。有酸素は なし。"""
+    if ex.part == "cardio":
+        return None
+    if ex.rest_seconds:
+        return ex.rest_seconds
+    if ex.name in config.BIG3_EXERCISES:
+        return config.REST_BIG3_SECONDS
+    return config.REST_SECONDS_BY_PART[ex.part]
+
+
 def exercise_view(session: Session, ex: Exercise) -> dict:
     history = done_sets(session, ex.id)
     last = history[0] if history else None
     best = rules.best_set([s for _, sets in history for s in sets]) if ex.part != "cardio" else None
     return {
         "id": ex.id, "name": ex.name, "part": ex.part, "part_label": config.BODY_PARTS[ex.part],
-        "cardio": ex.part == "cardio", "warmup_sets": ex.warmup_sets,
+        "cardio": ex.part == "cardio", "warmup_sets": ex.warmup_sets, "rest_seconds": rest_seconds(ex),
         "last": {"day": last[0].day, "sets": [rules.set_label(s) for s in last[1]],
                  "weight": last[1][-1].weight, "reps": last[1][-1].reps,
                  "duration_min": last[1][-1].duration_min, "distance_km": last[1][-1].distance_km} if last else None,
@@ -200,7 +215,19 @@ api = APIRouter(prefix="/api", dependencies=[Depends(auth.require_login)])
 @api.get("/exercises")
 def list_exercises(session: Session = Depends(get_session)):
     exercises = session.exec(select(Exercise).order_by(Exercise.id)).all()
-    return {"parts": config.BODY_PARTS, "exercises": [exercise_view(session, e) for e in exercises]}
+    return {"parts": config.BODY_PARTS, "exercises": [exercise_view(session, e) for e in exercises],
+            "rest": {"step": config.REST_STEP_SECONDS, "min": config.REST_MIN_SECONDS, "max": config.REST_MAX_SECONDS}}
+
+
+@api.put("/exercises/{exercise_id}/rest")
+def set_rest(exercise_id: int, body: RestInput, session: Session = Depends(get_session)):
+    """この種目の 休憩の長さを覚える。"""
+    ex = session.get(Exercise, exercise_id)
+    if ex is None or ex.part == "cardio":
+        raise HTTPException(404, "その種目は見つかりません")
+    ex.rest_seconds = body.seconds
+    session.commit()
+    return {"rest_seconds": rest_seconds(ex)}
 
 
 @api.post("/exercises")

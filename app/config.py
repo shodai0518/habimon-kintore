@@ -52,6 +52,14 @@ SPEED_METS = {  # (時速km, METs)
 }
 SPEED_METS_EXERCISES = {"ランニング": "run", "トレッドミル": "run", "ウォーキング": "walk"}
 
+# ---- セットの間の休憩タイマー ----
+# 最初の長さ（秒）。種目ごとに ±15秒で変えられて、変えた長さは 種目に覚えておく
+REST_BIG3_SECONDS = 180  # ビッグ3：重い重さなので 長め
+REST_SECONDS_BY_PART = {"chest": 120, "back": 120, "legs": 120, "shoulders": 120, "arms": 90, "abs": 90}
+REST_STEP_SECONDS = 15
+REST_MIN_SECONDS = 15
+REST_MAX_SECONDS = 600
+
 # ---- ログイン ----
 LOGIN_DAYS = 180  # 1回ログインすると この日数 そのまま使える
 LOGIN_MAX_FAILURES = 10  # この回数 まちがえると しばらくログインできない

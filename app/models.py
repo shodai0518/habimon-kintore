@@ -13,6 +13,7 @@ class Exercise(SQLModel, table=True):
     mets: float | None = None  # 運動の強さ（消費カロリーの計算に使う）
     mets_estimated: bool = True  # False：仮の値（ハビモンが取りこむときに AIで決め直す）
     warmup_sets: int = 0  # いつもやる アップのセット数（前に選んだ数を覚えておく）
+    rest_seconds: int | None = None  # セットの間の休憩（秒）。自分で変えた種目だけ入る（None なら 決まった長さ）
     preset: bool = False  # 最初から用意した種目か
     created_at: NaiveDatetime = Field(default_factory=datetime.now)
 

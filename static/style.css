@@ -95,3 +95,34 @@ input, select, textarea { font-size: 16px; }
 .message-window { width: 100%; max-width: 448px; min-height: 96px; position: relative; }
 .message-next { position: absolute; right: 12px; bottom: 6px; animation: blink 0.8s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
+
+/* セットの間の休憩タイマー（画面の下に固定） */
+.rest-bar {
+  position: fixed;
+  left: 50%;
+  bottom: calc(10px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width: calc(100% - 24px);
+  max-width: 456px;
+  z-index: 10;
+  background: var(--bg);
+  border: 3px solid var(--accent);
+  border-radius: 8px;
+  box-shadow: 0 0 0 2px var(--bg);
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rest-main { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.rest-label { color: var(--accent); }
+.rest-label small { color: var(--dim); margin-left: 4px; font-size: 0.75rem; }
+.rest-time { font-size: 2rem; letter-spacing: 0.05em; line-height: 1; }
+.rest-buttons { display: flex; gap: 6px; }
+.rest-buttons button { flex: 1; padding: 6px 4px; white-space: nowrap; }
+.rest-bar.over { border-color: var(--danger); }
+.rest-bar.over .rest-time { color: var(--danger); }
+.rest-bar.flash { animation: rest-flash 0.4s steps(1) 6; }
+@keyframes rest-flash { 50% { background: var(--accent); } }
+/* タイマーが出ている間は、下に隠れないように 余白をあける */
+body.resting #app { padding-bottom: calc(130px + env(safe-area-inset-bottom)); }

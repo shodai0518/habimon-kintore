@@ -22,6 +22,186 @@ const dayLabel = (iso) => {
   return `${d.getMonth() + 1}/${d.getDate()}（${WEEKDAYS[d.getDay()]}）`;
 };
 
+// ---- セットの間の休憩タイマー ----
+// 残り時間は「終わる時刻」から計算するので、別のアプリから戻ってきても 正しい時間が出る
+const restBar = document.getElementById("rest");
+const restTime = document.getElementById("rest-time");
+const restName = document.getElementById("rest-name");
+const restSound = document.getElementById("rest-sound");
+const REST_KEY = "kintore_rest";
+const SOUND_KEY = "kintore_rest_sound";
+let rest = null; // { exerciseId, name, seconds（決めた長さ）, endAt（終わる時刻）, rung（もう知らせたか）, limits }
+let restTicker = null;
+let audio = null;
+let wakeLock = null;
+
+const store = {
+  get(key) {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  set(key, value) {
+    try {
+      if (value === null) localStorage.removeItem(key);
+      else localStorage.setItem(key, value);
+    } catch {
+      // 保存できなくても続ける
+    }
+  },
+};
+const soundOn = () => store.get(SOUND_KEY) !== "off";
+
+// 音は、ボタンを押したとき（セットの「追加」など）に 用意しておかないと 鳴らせない
+function prepareAudio() {
+  try {
+    audio ??= new (window.AudioContext || window.webkitAudioContext)();
+    if (audio.state === "suspended") audio.resume();
+  } catch {
+    audio = null;
+  }
+}
+
+function beep() {
+  if (!soundOn() || !audio) return;
+  [0, 0.25, 0.5].forEach((delay) => {
+    const osc = audio.createOscillator();
+    const gain = audio.createGain();
+    osc.type = "square";
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.0001, audio.currentTime + delay);
+    gain.gain.exponentialRampToValueAtTime(0.25, audio.currentTime + delay + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + delay + 0.18);
+    osc.connect(gain).connect(audio.destination);
+    osc.start(audio.currentTime + delay);
+    osc.stop(audio.currentTime + delay + 0.2);
+  });
+}
+
+// タイマーが動いている間は 画面が暗くならないようにする（暗くなると 音が鳴らせない）
+async function keepAwake(on) {
+  try {
+    if (on && !wakeLock && "wakeLock" in navigator && document.visibilityState === "visible") {
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", () => (wakeLock = null));
+    } else if (!on && wakeLock) {
+      await wakeLock.release();
+      wakeLock = null;
+    }
+  } catch {
+    wakeLock = null;
+  }
+}
+
+const formatRest = (seconds) => `${Math.floor(seconds / 60)}:${pad(seconds % 60)}`;
+
+function drawRest() {
+  if (!rest) return;
+  const left = Math.ceil((rest.endAt - Date.now()) / 1000);
+  const over = left <= 0;
+  restTime.textContent = over ? `+${formatRest(-left)}` : formatRest(left);
+  restBar.classList.toggle("over", over);
+  if (over && !rest.rung) {
+    rest.rung = true;
+    saveRest();
+    beep();
+    restBar.classList.add("flash");
+    setTimeout(() => restBar.classList.remove("flash"), 2400);
+  }
+  if (-left > 600) stopRest(); // 10分すぎても そのままなら 片づける
+}
+
+function saveRest() {
+  store.set(REST_KEY, rest ? JSON.stringify(rest) : null);
+}
+
+function showRest() {
+  restBar.hidden = false;
+  document.body.classList.add("resting");
+  restName.textContent = `（${rest.name}・${formatRest(rest.seconds)}）`;
+  restSound.textContent = soundOn() ? "音 オン" : "音 オフ";
+  clearInterval(restTicker);
+  restTicker = setInterval(drawRest, 250);
+  drawRest();
+  keepAwake(true);
+}
+
+function startRest(exercise, limits) {
+  if (!exercise?.rest_seconds) return;
+  prepareAudio();
+  rest = {
+    exerciseId: exercise.id,
+    name: exercise.name,
+    seconds: exercise.rest_seconds,
+    endAt: Date.now() + exercise.rest_seconds * 1000,
+    rung: false,
+    limits,
+  };
+  saveRest();
+  showRest();
+}
+
+function stopRest() {
+  rest = null;
+  saveRest();
+  clearInterval(restTicker);
+  restBar.hidden = true;
+  restBar.classList.remove("over", "flash");
+  document.body.classList.remove("resting");
+  keepAwake(false);
+}
+
+// 長さを変える：今のタイマーに足し引きして、この種目の長さとして覚える
+function adjustRest(delta) {
+  if (!rest) return;
+  prepareAudio();
+  const { min = 15, max = 600 } = rest.limits ?? {};
+  const seconds = Math.min(max, Math.max(min, rest.seconds + delta));
+  const change = seconds - rest.seconds;
+  if (!change) return;
+  rest.seconds = seconds;
+  rest.endAt += change * 1000;
+  if (rest.endAt > Date.now()) rest.rung = false; // のばして まだ時間が残っていれば、また知らせる
+  saveRest();
+  showRest();
+  api(`/exercises/${rest.exerciseId}/rest`, { method: "PUT", body: { seconds } }).catch(() => {});
+}
+
+document.getElementById("rest-minus").addEventListener("click", () => adjustRest(-(rest?.limits?.step ?? 15)));
+document.getElementById("rest-plus").addEventListener("click", () => adjustRest(rest?.limits?.step ?? 15));
+document.getElementById("rest-skip").addEventListener("click", stopRest);
+restSound.addEventListener("click", () => {
+  store.set(SOUND_KEY, soundOn() ? "off" : "on");
+  restSound.textContent = soundOn() ? "音 オン" : "音 オフ";
+  if (soundOn()) {
+    prepareAudio();
+    beep(); // どんな音か 聞かせる
+  }
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && rest) {
+    keepAwake(true);
+    drawRest();
+  }
+});
+
+// 画面を開き直したときに、動いていたタイマーを つづける
+function restoreRest() {
+  try {
+    const saved = JSON.parse(store.get(REST_KEY) || "null");
+    if (saved && Date.now() - saved.endAt < 600000) {
+      rest = saved;
+      showRest();
+    } else {
+      store.set(REST_KEY, null);
+    }
+  } catch {
+    store.set(REST_KEY, null);
+  }
+}
+
 class LoginNeeded extends Error {}
 
 async function api(path, options = {}) {
@@ -85,6 +265,7 @@ function confirmTwice(button, warning, action) {
 // ---- ログイン ----
 function renderLogin() {
   clearInterval(timer);
+  stopRest();
   logoutBtn.hidden = true;
   view.innerHTML = `
     <section class="window">
@@ -340,7 +521,9 @@ function renderActive(w, ex) {
       if (warmup && w.warmups[exerciseId] === undefined) {
         await api(`/workouts/${w.id}/warmup`, { method: "PUT", body: { exercise_id: exerciseId, sets: Number(warmup.value) } });
       }
+      prepareAudio(); // 「追加」を押した今のうちに 音を用意しておく
       await api(`/workouts/${w.id}/sets`, { method: "POST", body });
+      if (selected && !selected.cardio) startRest(selected, ex.rest);
       await render();
     });
   });
@@ -374,6 +557,7 @@ function renderActive(w, ex) {
     const end = new FormData(document.getElementById("finish-form")).get("end");
     run(async () => {
       const res = await api(`/workouts/${w.id}/finish`, { method: "POST", body: { ended_at: end || null } });
+      stopRest();
       await showMessages(res.messages);
       await render();
     });
@@ -381,6 +565,7 @@ function renderActive(w, ex) {
   confirmTwice(document.getElementById("cancel"), "本当にやめる？", () =>
     run(async () => {
       await api(`/workouts/${w.id}`, { method: "DELETE" });
+      stopRest();
       await render();
     }),
   );
@@ -391,9 +576,13 @@ async function render() {
   await run(async () => {
     const data = await api("/workouts");
     logoutBtn.hidden = false;
-    if (!data.current) return renderStart(data);
+    if (!data.current) {
+      if (rest) stopRest(); // 筋トレが終わっていたら タイマーも片づける
+      return renderStart(data);
+    }
     renderActive(data.current, await api("/exercises"));
   });
 }
 
+restoreRest();
 render();

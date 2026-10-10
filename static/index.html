@@ -25,6 +25,18 @@
     </header>
     <main id="view"><p class="hint center">読み込み中…</p></main>
   </div>
+  <div id="rest" class="rest-bar" hidden>
+    <div class="rest-main">
+      <span class="rest-label">休憩<small id="rest-name"></small></span>
+      <span id="rest-time" class="rest-time">0:00</span>
+    </div>
+    <div class="rest-buttons">
+      <button type="button" class="small" id="rest-minus">−15秒</button>
+      <button type="button" class="small" id="rest-plus">＋15秒</button>
+      <button type="button" class="small" id="rest-sound">音 オン</button>
+      <button type="button" class="small" id="rest-skip">スキップ</button>
+    </div>
+  </div>
   <div id="message" class="message-layer" hidden>
     <div class="window message-window">
       <p id="message-text"></p>
