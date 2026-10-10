@@ -1,0 +1,97 @@
+/* ハビットモンスターと同じ見た目（ドラクエ風） */
+:root {
+  --bg: #000;
+  --fg: #fff;
+  --dim: #9ca3af;
+  --accent: #ffd84a;
+  --ok: #4ade80;
+  --danger: #f87171;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: "DotGothic16", "MS Gothic", monospace;
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-text-size-adjust: 100%;
+}
+
+#app {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 12px 16px calc(32px + env(safe-area-inset-bottom));
+  padding-top: calc(12px + env(safe-area-inset-top));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+#view { display: flex; flex-direction: column; gap: 12px; }
+
+h2 { font-size: 1rem; font-weight: normal; margin: 0 0 8px; color: var(--accent); }
+ul { list-style: none; margin: 0; padding: 0; }
+p { margin: 0; }
+
+.window {
+  background: var(--bg);
+  border: 3px solid var(--fg);
+  border-radius: 8px;
+  box-shadow: 0 0 0 2px var(--bg), inset 0 0 0 2px var(--bg);
+  padding: 12px 14px;
+}
+.status-window { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.status-window .name { color: var(--accent); }
+
+button, input, textarea, select { font: inherit; color: var(--fg); background: var(--bg); }
+button { border: 2px solid var(--fg); border-radius: 6px; padding: 8px 12px; cursor: pointer; }
+button:hover, button:focus-visible, button.selected { background: var(--fg); color: var(--bg); outline: none; }
+button:disabled { opacity: 0.4; cursor: default; }
+button.small { padding: 4px 10px; font-size: 0.85rem; }
+button.danger { border-color: var(--danger); color: var(--danger); }
+button.primary { width: 100%; padding: 12px; font-size: 1.1rem; border-width: 3px; color: var(--accent); border-color: var(--accent); }
+button.primary:hover, button.primary:focus-visible { background: var(--accent); color: var(--bg); }
+
+input, textarea, select { border: 2px solid var(--fg); border-radius: 6px; padding: 8px; min-width: 0; }
+input[type="number"] { width: 4.5em; text-align: right; }
+/* スマホで 入力欄をタップしたときに 画面が勝手に拡大されないように（16px以上） */
+input, select, textarea { font-size: 16px; }
+
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.grow { flex: 1; }
+.hint { color: var(--dim); font-size: 0.85rem; margin-top: 8px; }
+.center { text-align: center; }
+.ok { color: var(--ok); }
+.ng { color: var(--danger); }
+.empty { color: var(--dim); }
+.clock { font-size: 2.6rem; letter-spacing: 0.05em; margin: 4px 0; }
+
+.list li { padding: 8px 0; border-bottom: 1px dashed #444; }
+.list li:last-child { border-bottom: none; }
+.part-row { gap: 4px; }
+.set-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.set-chip { border: 1px solid #555; border-radius: 4px; padding: 2px 0 2px 8px; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 4px; }
+.set-chip button { border: none; padding: 2px 8px; }
+.set-chip.pr { border-color: var(--accent); color: var(--accent); }
+.history-line { display: flex; gap: 8px; font-size: 0.85rem; }
+.history-line span:first-child { flex: 0 0 9em; color: var(--dim); }
+.kcal { color: var(--fg); font-size: 0.85rem; }
+
+/* メッセージ（タップで次へ） */
+.message-layer[hidden] { display: none; }
+.message-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 16px 16px calc(24px + env(safe-area-inset-bottom));
+  background: rgba(0, 0, 0, 0.35);
+}
+.message-window { width: 100%; max-width: 448px; min-height: 96px; position: relative; }
+.message-next { position: absolute; right: 12px; bottom: 6px; animation: blink 0.8s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }

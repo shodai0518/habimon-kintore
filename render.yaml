@@ -1,0 +1,22 @@
+# Render に置くときの設定（無料プラン）
+services:
+  - type: web
+    name: habimon-kintore
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.13.5"
+      - key: APP_TIMEZONE
+        value: Asia/Tokyo
+      - key: DATABASE_URL
+        sync: false   # Neon の接続文字列を Render の画面で入れる
+      - key: APP_PASSWORD
+        sync: false   # スマホで開くときの合言葉
+      - key: SYNC_TOKEN
+        sync: false   # ハビモンが取りに来るときの合言葉
+      - key: SECRET_KEY
+        generateValue: true
