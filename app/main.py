@@ -336,6 +336,7 @@ def cancel(workout_id: int, session: Session = Depends(get_session)):
     w = load(session, workout_id, "active")
     for s in session.exec(select(WorkoutSet).where(WorkoutSet.workout_id == w.id)).all():
         session.delete(s)
+    session.flush()  # 先にセットを消してから 本体を消す（PostgreSQL は 順番がちがうと 断る）
     session.delete(w)
     session.commit()
     return {"ok": True}
@@ -477,6 +478,7 @@ def sync_delete(workout_id: int, session: Session = Depends(get_session)):
         return {"deleted": False}  # もう ない
     for s in session.exec(select(WorkoutSet).where(WorkoutSet.workout_id == w.id)).all():
         session.delete(s)
+    session.flush()  # 先にセットを消してから 本体を消す（PostgreSQL は 順番がちがうと 断る）
     session.delete(w)
     session.commit()
     return {"deleted": True}
