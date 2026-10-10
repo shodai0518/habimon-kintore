@@ -138,3 +138,12 @@ def test_japan_time_is_available():
     utc = datetime.now(timezone.utc).replace(tzinfo=None)
     assert 8.9 < (real - utc).total_seconds() / 3600 < 9.1
     assert clock.game_day(datetime(2026, 10, 10, 3, 59)).isoformat() == "2026-10-09"
+
+
+def test_sync_delete_done_workout(client):
+    wid, _ = record(client)
+    client.post(f"/api/workouts/{wid}/finish", json={"ended_at": NOW.isoformat()})
+    assert client.delete(f"/api/sync/workouts/{wid}").json() == {"deleted": True}
+    assert client.get("/api/workouts").json()["history"] == []
+    assert client.get("/api/sync/workouts").json()["workouts"] == []
+    assert client.delete(f"/api/sync/workouts/{wid}").json() == {"deleted": False}  # もう ない

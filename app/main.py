@@ -469,6 +469,19 @@ def sync_import(body: ImportInput, session: Session = Depends(get_session)):
     return {"workouts": mapping, "exercise_count": len(by_name)}
 
 
+@sync.delete("/workouts/{workout_id}")
+def sync_delete(workout_id: int, session: Session = Depends(get_session)):
+    """終わった筋トレを消す（ハビモンで記録を取り消したとき）。"""
+    w = session.get(Workout, workout_id)
+    if w is None:
+        return {"deleted": False}  # もう ない
+    for s in session.exec(select(WorkoutSet).where(WorkoutSet.workout_id == w.id)).all():
+        session.delete(s)
+    session.delete(w)
+    session.commit()
+    return {"deleted": True}
+
+
 class MetsInput(BaseModel):
     mets: dict[str, float]  # 種目の名前 → 強さ（ハビモンが AIで決めた値）
 
