@@ -17,7 +17,7 @@ from sqlmodel import Session, select
 
 from app import auth, calorie, clock, config, food_ai, rules
 from app.db import engine, get_session, init_db
-from app.models import AiUsage, Exercise, Meal, Workout, WorkoutSet
+from app.models import AiUsage, Exercise, Meal, MenuItem, Workout, WorkoutSet
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 PartKey = Literal["chest", "shoulders", "arms", "back", "abs", "legs", "cardio"]
@@ -405,6 +405,20 @@ class MealInput(BaseModel):
     note: str = Field(default="", max_length=300)
     source: Literal["photo", "text", "label", "manual"] = "manual"
     eaten_at: datetime | None = None  # あとから記録するとき
+    menu_name: str | None = Field(default=None, max_length=40)  # 入れると、マイメニューにも登録する
+
+
+class MenuInput(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+    items: list[food_ai.ItemInput] = Field(min_length=1, max_length=config.FOOD_MAX_ITEMS)
+
+
+class MenuFromMealInput(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+
+
+class EatInput(BaseModel):
+    servings: float = Field(default=1, gt=0, le=10)  # 何個（何人前）ぶん食べたか
 
 
 def latest_weight(session: Session) -> float | None:
@@ -433,6 +447,39 @@ def day_totals(meals: list[Meal]) -> dict:
             "count": len(meals)}
 
 
+# ---- マイメニュー ----
+def menu_items(session: Session) -> list[MenuItem]:
+    """よく使う順（最近使ったものが上）。"""
+    items = session.exec(select(MenuItem)).all()
+    return sorted(items, key=lambda m: (m.last_used or m.created_at, m.last_used is not None, m.id), reverse=True)
+
+
+def menu_view(item: MenuItem) -> dict:
+    return {"id": item.id, "name": item.name, "kcal": round(item.kcal), "protein": round(item.protein, 1),
+            "fat": round(item.fat, 1), "carbs": round(item.carbs, 1), "items": json.loads(item.items),
+            "use_count": item.use_count}
+
+
+def save_menu(session: Session, name: str, items: list[dict], menu: MenuItem | None = None) -> MenuItem:
+    """マイメニューに登録する（menu を渡せば その内容を書きかえる）。"""
+    name = name.strip()
+    if not name:
+        raise HTTPException(400, "マイメニューの名前を入れてね")
+    same = session.exec(select(MenuItem).where(MenuItem.name == name)).first()
+    if same and (menu is None or same.id != menu.id):
+        raise HTTPException(409, "その名前のマイメニューは もうあります")
+    if menu is None:
+        if len(session.exec(select(MenuItem)).all()) >= config.MENU_MAX:
+            raise HTTPException(409, f"マイメニューは{config.MENU_MAX}個までです")
+        menu = MenuItem(name=name, created_at=clock.now())
+    menu.name = name
+    menu.items = json.dumps(items, ensure_ascii=False)
+    menu.kcal, menu.protein = sum(i["kcal"] for i in items), sum(i["protein"] for i in items)
+    menu.fat, menu.carbs = sum(i["fat"] for i in items), sum(i["carbs"] for i in items)
+    session.add(menu)
+    return menu
+
+
 def ai_used_today(session: Session) -> int:
     row = session.get(AiUsage, clock.today())
     return row.count if row else 0
@@ -454,6 +501,8 @@ def read_meals(session: Session = Depends(get_session)):
         "history": [{"day": day, **day_totals(items)} for day, items in sorted(by_day.items(), reverse=True) if day != today],
         "ai": {"available": food_ai.available(), "used": ai_used_today(session), "limit": config.FOOD_AI_DAILY_LIMIT},
         "max_images": config.FOOD_MAX_IMAGES,
+        "menu": [menu_view(m) for m in menu_items(session)],
+        "servings": config.MENU_SERVINGS,
     }
 
 
@@ -503,6 +552,73 @@ def create_meal(body: MealInput, session: Session = Depends(get_session)):
         fat=sum(i["fat"] for i in items), carbs=sum(i["carbs"] for i in items),
         items=json.dumps(items, ensure_ascii=False), note=body.note.strip() or None, source=body.source, created_at=now,
     )
+    session.add(meal)
+    if body.menu_name and body.menu_name.strip():  # マイメニューにも登録する
+        save_menu(session, body.menu_name, items)
+    session.commit()
+    session.refresh(meal)
+    return meal_view(meal)
+
+
+@api.post("/menu")
+def create_menu(body: MenuInput, session: Session = Depends(get_session)):
+    menu = save_menu(session, body.name, [item.model_dump() for item in body.items])
+    session.commit()
+    session.refresh(menu)
+    return menu_view(menu)
+
+
+@api.post("/menu/from-meal/{meal_id}")
+def create_menu_from_meal(meal_id: int, body: MenuFromMealInput, session: Session = Depends(get_session)):
+    """記録した食事を、そのままマイメニューに登録する。"""
+    meal = session.get(Meal, meal_id)
+    if meal is None:
+        raise HTTPException(404, "その食事の記録は見つかりません")
+    menu = save_menu(session, body.name, json.loads(meal.items))
+    session.commit()
+    session.refresh(menu)
+    return menu_view(menu)
+
+
+@api.put("/menu/{menu_id}")
+def update_menu(menu_id: int, body: MenuInput, session: Session = Depends(get_session)):
+    menu = session.get(MenuItem, menu_id)
+    if menu is None:
+        raise HTTPException(404, "そのマイメニューは見つかりません")
+    save_menu(session, body.name, [item.model_dump() for item in body.items], menu)
+    session.commit()
+    session.refresh(menu)
+    return menu_view(menu)
+
+
+@api.delete("/menu/{menu_id}")
+def delete_menu(menu_id: int, session: Session = Depends(get_session)):
+    menu = session.get(MenuItem, menu_id)
+    if menu is None:
+        raise HTTPException(404, "そのマイメニューは見つかりません")
+    session.delete(menu)
+    session.commit()
+    return {"ok": True}
+
+
+@api.post("/menu/{menu_id}/eat")
+def eat_menu(menu_id: int, body: EatInput, session: Session = Depends(get_session)):
+    """マイメニューを食べた：登録した数字で 食事を記録する（AIは使わない）。"""
+    menu = session.get(MenuItem, menu_id)
+    if menu is None:
+        raise HTTPException(404, "そのマイメニューは見つかりません")
+    now = clock.now()
+    n = body.servings
+    items = [{**i, "kcal": round(i["kcal"] * n, 1), "protein": round(i["protein"] * n, 1), "fat": round(i["fat"] * n, 1),
+              "carbs": round(i["carbs"] * n, 1), "amount": f"{i.get('amount') or ''}×{n:g}".strip() if n != 1 else i.get("amount", "")}
+             for i in json.loads(menu.items)]
+    title = menu.name if n == 1 else f"{menu.name}×{n:g}"
+    meal = Meal(day=clock.game_day(now), eaten_at=now, title=title[:80], kcal=sum(i["kcal"] for i in items),
+                protein=sum(i["protein"] for i in items), fat=sum(i["fat"] for i in items),
+                carbs=sum(i["carbs"] for i in items), items=json.dumps(items, ensure_ascii=False), source="menu",
+                created_at=now)
+    menu.use_count += 1
+    menu.last_used = now
     session.add(meal)
     session.commit()
     session.refresh(meal)

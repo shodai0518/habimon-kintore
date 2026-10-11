@@ -101,3 +101,41 @@ def test_day_boundary_history_delete_and_sync(client):
 def test_clean_item_limits_numbers():
     item = food_ai.clean_item(food_ai.FoodItem(name="  ", amount="x", kcal=-5, protein=9999, fat=1.26, carbs=3))
     assert (item.name, item.kcal, item.protein, item.fat) == ("（名前なし）", 0.0, 500.0, 1.3)
+
+
+# ---- マイメニュー ----
+OIKOS = {"name": "オイコス プレーン砂糖不使用", "amount": "1個・113g", "kcal": 92, "protein": 12.0, "fat": 0, "carbs": 5.4}
+
+
+def test_menu_register_eat_and_edit(client):
+    # 記録するときに マイメニューにも登録する
+    client.post("/api/meals", json={"items": [OIKOS], "source": "label", "menu_name": "オイコス"})
+    data = client.get("/api/meals").json()
+    menu = data["menu"][0]
+    assert (menu["name"], menu["kcal"], menu["protein"]) == ("オイコス", 92, 12.0) and data["servings"][1] == 1
+    # 選ぶだけで記録できる（AIは使わない）。2個ぶんも
+    meal = client.post(f"/api/menu/{menu['id']}/eat", json={}).json()
+    assert (meal["title"], meal["kcal"], meal["source"]) == ("オイコス", 92, "menu")
+    double = client.post(f"/api/menu/{menu['id']}/eat", json={"servings": 2}).json()
+    assert (double["title"], double["kcal"], double["protein"]) == ("オイコス×2", 184, 24.0)
+    data = client.get("/api/meals").json()
+    assert data["totals"]["count"] == 3 and data["menu"][0]["use_count"] == 2 and data["ai"]["used"] == 0
+    # 数字を直す
+    fixed = client.put(f"/api/menu/{menu['id']}", json={"name": "オイコス", "items": [{**OIKOS, "kcal": 95}]}).json()
+    assert fixed["kcal"] == 95
+    assert client.delete(f"/api/menu/{menu['id']}").json()["ok"]
+    assert client.get("/api/meals").json()["menu"] == []
+
+
+def test_menu_from_meal_and_duplicates(client):
+    meal = client.post("/api/meals", json={"items": [RICE, CHICKEN]}).json()
+    menu = client.post(f"/api/menu/from-meal/{meal['id']}", json={"name": "唐揚げ定食"}).json()
+    assert menu["kcal"] == 584 and [i["name"] for i in menu["items"]] == ["ご飯", "唐揚げ"]
+    assert client.post(f"/api/menu/from-meal/{meal['id']}", json={"name": "唐揚げ定食"}).status_code == 409  # 同じ名前
+    assert client.post("/api/menu", json={"name": "  ", "items": [RICE]}).status_code == 400
+    assert client.post("/api/menu/999/eat", json={}).status_code == 404
+    # 最近使ったものが 上に来る
+    other = client.post("/api/menu", json={"name": "ご飯だけ", "items": [RICE]}).json()
+    client.post(f"/api/menu/{menu['id']}/eat", json={})
+    assert [m["name"] for m in client.get("/api/meals").json()["menu"]] == ["唐揚げ定食", "ご飯だけ"]
+    assert other["use_count"] == 0

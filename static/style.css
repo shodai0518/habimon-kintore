@@ -151,3 +151,13 @@ body.resting #app { padding-bottom: calc(130px + env(safe-area-inset-bottom)); }
 .draft-questions h2 { margin: 0; }
 .draft-questions label { display: flex; flex-direction: column; gap: 4px; }
 .draft-total { margin-top: 10px; color: var(--accent); font-size: 0.9rem; }
+
+/* マイメニュー */
+.menu-item { display: flex; flex-direction: column; gap: 6px; }
+.menu-main { display: flex; flex-direction: column; }
+.menu-main .hint { margin-top: 0; }
+.menu-actions { gap: 6px; flex-wrap: nowrap; }
+.menu-actions select { flex: 0 0 auto; padding: 6px 4px; }
+.menu-actions [data-menu-eat] { flex: 1; }
+.menu-register { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.menu-register input[type="checkbox"] { width: 20px; height: 20px; flex: none; }

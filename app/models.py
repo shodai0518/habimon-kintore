@@ -71,3 +71,18 @@ class AiUsage(SQLModel, table=True):
 
     day: date = Field(primary_key=True)
     count: int = 0
+
+
+class MenuItem(SQLModel, table=True):
+    """マイメニュー：よく食べるものを、正しい数字と一緒に登録しておく（AIを使わずに 選ぶだけで記録できる）"""
+
+    id: int | None = Field(default=None, primary_key=True)
+    name: str = Field(unique=True)
+    kcal: float = 0  # 1個（1人前）ぶん
+    protein: float = 0
+    fat: float = 0
+    carbs: float = 0
+    items: str = "[]"  # 品目ごとの内訳（JSON）
+    use_count: int = 0
+    last_used: NaiveDatetime | None = None
+    created_at: NaiveDatetime = Field(default_factory=datetime.now)

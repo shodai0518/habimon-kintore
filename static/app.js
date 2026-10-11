@@ -361,6 +361,37 @@ function mealAddSection(data) {
   </section>`;
 }
 
+// マイメニュー：よく食べるものを 選ぶだけで記録する（AIは使わない）
+function menuSection(data) {
+  if (!data.menu.length) {
+    return `<section class="window">
+      <h2>マイメニュー</h2>
+      <p class="hint" style="margin-top:0">よく食べるものを登録しておくと、次からは押すだけで記録できるよ（AIを使わないので、ずれない）。<br>
+        記録するときに「マイメニューにも登録」にチェックするか、下の「今日 食べたもの」の「登録」から。</p>
+    </section>`;
+  }
+  const options = data.servings.map((n) => `<option value="${n}" ${n === 1 ? "selected" : ""}>×${n}</option>`).join("");
+  return `<section class="window">
+    <h2>マイメニュー（${data.menu.length}）</h2>
+    <ul class="list">${data.menu
+      .map(
+        (m) => `<li class="menu-item">
+          <div class="menu-main">
+            <b>${esc(m.name)}</b>
+            <small class="hint">${m.kcal}kcal・たんぱく質 ${m.protein}g・脂質 ${m.fat}g・炭水化物 ${m.carbs}g</small>
+          </div>
+          <div class="row menu-actions">
+            <select data-menu-servings="${m.id}" aria-label="量">${options}</select>
+            <button data-menu-eat="${m.id}">食べた</button>
+            <button class="small" data-menu-edit="${m.id}">直す</button>
+            <button class="small danger" data-menu-delete="${m.id}">消す</button>
+          </div>
+        </li>`,
+      )
+      .join("")}</ul>
+  </section>`;
+}
+
 function draftSection() {
   const d = mealDraft;
   const rows = d.items
@@ -388,14 +419,23 @@ function draftSection() {
       </div>`
     : "";
   return `<section class="window">
-    <h2>${d.source === "manual" ? "自分で入力" : d.source === "label" ? "栄養成分表示から読み取った" : "AIの見積もり"}（確かめて、ちがうところは直してね）</h2>
+    <h2>${
+      d.menuId ? "マイメニューを直す" : d.source === "manual" ? "自分で入力" : d.source === "label" ? "栄養成分表示から読み取った" : "AIの見積もり"
+    }（確かめて、ちがうところは直してね）</h2>
     ${d.comment ? `<p class="hint" style="margin-top:0">${esc(d.comment)}</p>` : ""}
     ${questions}
     <div id="draft-items">${rows}</div>
     <button type="button" id="draft-add" class="small" style="margin-top:8px">＋品目を足す</button>
     <p class="draft-total" id="draft-total"></p>
+    ${
+      d.menuId
+        ? `<label class="menu-register"><span>名前</span><input id="draft-menu-name" class="grow" maxlength="40" value="${esc(d.menuName ?? "")}"></label>`
+        : `<label class="menu-register"><input type="checkbox" id="draft-menu-check" ${d.menuCheck ? "checked" : ""}>
+             <span>マイメニューにも登録</span>
+             <input id="draft-menu-name" class="grow" maxlength="40" placeholder="名前（例：オイコス）" value="${esc(d.menuName ?? "")}"></label>`
+    }
     <div class="row" style="margin-top:8px">
-      <button type="button" id="draft-save" class="primary grow">記録する</button>
+      <button type="button" id="draft-save" class="primary grow">${d.menuId ? "この内容で保存" : "記録する"}</button>
       <button type="button" id="draft-cancel" class="small danger">やめる</button>
     </div>
   </section>`;
@@ -408,7 +448,10 @@ function mealListSection(data) {
           (m) => `<li>
             <div class="row" style="justify-content:space-between">
               <b>${hhmm(m.eaten_at)}　${m.kcal}kcal</b>
-              <button class="small danger" data-meal-delete="${m.id}">消す</button>
+              <span class="row" style="gap:6px">
+                ${m.source === "menu" ? "" : `<button class="small" data-meal-register="${m.id}">登録</button>`}
+                <button class="small danger" data-meal-delete="${m.id}">消す</button>
+              </span>
             </div>
             <div>${esc(m.title)}</div>
             <small class="hint">たんぱく質 ${m.protein}g・脂質 ${m.fat}g・炭水化物 ${m.carbs}g</small>
@@ -426,6 +469,10 @@ function mealListSection(data) {
 }
 
 function readDraft() {
+  const menuName = document.getElementById("draft-menu-name");
+  if (menuName) mealDraft.menuName = menuName.value;
+  const menuCheck = document.getElementById("draft-menu-check");
+  if (menuCheck) mealDraft.menuCheck = menuCheck.checked;
   document.querySelectorAll(".draft-item").forEach((row) => {
     const item = mealDraft.items[Number(row.dataset.index)];
     row.querySelectorAll("[data-field]").forEach((input) => {
@@ -463,7 +510,7 @@ async function analyzeMeal(button, answers) {
 }
 
 function renderMeals(data) {
-  view.innerHTML = `${mealSummary(data)}${mealDraft ? draftSection() : mealAddSection(data)}${mealListSection(data)}`;
+  view.innerHTML = `${mealSummary(data)}${mealDraft ? draftSection() : `${menuSection(data)}${mealAddSection(data)}`}${mealListSection(data)}`;
 
   if (mealDraft) {
     drawDraftTotal();
@@ -484,6 +531,12 @@ function renderMeals(data) {
       mealDraft.items.push({ name: "", amount: "", kcal: 0, protein: 0, fat: 0, carbs: 0 });
       renderMeals(data);
     });
+    document.getElementById("draft-menu-check")?.addEventListener("change", (e) => {
+      const name = document.getElementById("draft-menu-name");
+      if (e.target.checked && !name.value.trim()) name.value = (mealDraft.items[0]?.name ?? "").slice(0, 40);
+      readDraft();
+    });
+    document.getElementById("draft-menu-name")?.addEventListener("input", readDraft);
     document.getElementById("draft-reanalyze")?.addEventListener("click", (e) =>
       run(async () => {
         const answers = [...document.querySelectorAll("[data-answer]")].map((input) => input.value);
@@ -500,15 +553,28 @@ function renderMeals(data) {
         readDraft();
         const items = mealDraft.items.filter((i) => i.name.trim());
         if (!items.length) throw new Error("品目を1つ以上 入れてね");
+        const menuName = (mealDraft.menuName ?? "").trim();
+        if (mealDraft.menuId && !menuName) throw new Error("マイメニューの名前を入れてね");
+        if (mealDraft.menuCheck && !menuName) throw new Error("マイメニューの名前を入れてね（登録しないなら チェックを外す）");
         e.target.disabled = true;
         try {
-          await api("/meals", { method: "POST", body: { items, note: mealNote, source: mealDraft.source } });
+          if (mealDraft.menuId) {
+            await api(`/menu/${mealDraft.menuId}`, { method: "PUT", body: { name: menuName, items } });
+          } else {
+            await api("/meals", {
+              method: "POST",
+              body: { items, note: mealNote, source: mealDraft.source, menu_name: mealDraft.menuCheck ? menuName : null },
+            });
+          }
         } finally {
           e.target.disabled = false;
         }
+        const editedMenu = Boolean(mealDraft.menuId);
         mealDraft = null;
-        mealPhotos = [];
-        mealNote = "";
+        if (!editedMenu) {
+          mealPhotos = [];
+          mealNote = "";
+        }
         await render();
       }),
     );
@@ -535,6 +601,62 @@ function renderMeals(data) {
       renderMeals(data);
     });
   }
+
+  view.querySelectorAll("[data-menu-eat]").forEach((btn) =>
+    btn.addEventListener("click", () =>
+      run(async () => {
+        btn.disabled = true;
+        const servings = Number(view.querySelector(`[data-menu-servings="${btn.dataset.menuEat}"]`).value);
+        try {
+          await api(`/menu/${btn.dataset.menuEat}/eat`, { method: "POST", body: { servings } });
+        } finally {
+          btn.disabled = false;
+        }
+        await render();
+      }),
+    ),
+  );
+  view.querySelectorAll("[data-menu-edit]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const m = data.menu.find((x) => x.id === Number(btn.dataset.menuEdit));
+      mealDraft = { items: m.items.map((i) => ({ ...i })), questions: [], comment: "", source: "manual", menuId: m.id, menuName: m.name };
+      renderMeals(data);
+      window.scrollTo(0, 0);
+    }),
+  );
+  view.querySelectorAll("[data-menu-delete]").forEach((btn) =>
+    confirmTwice(btn, "本当に消す？", () =>
+      run(async () => {
+        await api(`/menu/${btn.dataset.menuDelete}`, { method: "DELETE" });
+        await render();
+      }),
+    ),
+  );
+  // 記録した食事を マイメニューに登録する：ボタンを 名前の入力欄に変える
+  view.querySelectorAll("[data-meal-register]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const meal = data.meals.find((x) => x.id === Number(btn.dataset.mealRegister));
+      const li = btn.closest("li");
+      li.insertAdjacentHTML(
+        "beforeend",
+        `<form class="row register-form" style="margin-top:6px">
+           <input name="name" class="grow" maxlength="40" value="${esc(meal.title.slice(0, 40))}" placeholder="マイメニューの名前">
+           <button class="small">登録する</button>
+         </form>`,
+      );
+      btn.remove();
+      const form = li.querySelector(".register-form");
+      form.querySelector("input").select();
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        run(async () => {
+          await api(`/menu/from-meal/${meal.id}`, { method: "POST", body: { name: new FormData(form).get("name") } });
+          await showMessages(["マイメニューに登録した！ 次からは「食べた」を押すだけで記録できるよ。"]);
+          await render();
+        });
+      });
+    }),
+  );
 
   view.querySelectorAll("[data-meal-delete]").forEach((btn) =>
     confirmTwice(btn, "本当に消す？", () =>
