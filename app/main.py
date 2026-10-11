@@ -15,9 +15,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
-from app import auth, calorie, clock, config, rules
+from app import auth, calorie, clock, config, food_ai, rules
 from app.db import engine, get_session, init_db
-from app.models import Exercise, Workout, WorkoutSet
+from app.models import AiUsage, Exercise, Meal, Workout, WorkoutSet
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 PartKey = Literal["chest", "shoulders", "arms", "back", "abs", "legs", "cardio"]
@@ -392,6 +392,133 @@ def finish(workout_id: int, body: FinishInput, session: Session = Depends(get_se
     return {"messages": messages, "workout": view}
 
 
+# ---- 食事 ----
+class AnalyzeInput(BaseModel):
+    images: list[str] = Field(default=[], max_length=config.FOOD_MAX_IMAGES)  # data URL（画面側で 小さくした JPEG）
+    note: str = Field(default="", max_length=300)
+    questions: list[str] = Field(default=[], max_length=config.FOOD_MAX_QUESTIONS)  # 前に AIが聞いた質問
+    answers: list[str] = Field(default=[], max_length=config.FOOD_MAX_QUESTIONS)  # その答え
+
+
+class MealInput(BaseModel):
+    items: list[food_ai.ItemInput] = Field(min_length=1, max_length=config.FOOD_MAX_ITEMS)
+    note: str = Field(default="", max_length=300)
+    source: Literal["photo", "text", "label", "manual"] = "manual"
+    eaten_at: datetime | None = None  # あとから記録するとき
+
+
+def latest_weight(session: Session) -> float | None:
+    return session.exec(
+        select(Workout.body_weight).where(Workout.body_weight.is_not(None)).order_by(Workout.started_at.desc())
+    ).first()
+
+
+def nutrition_targets(weight: float | None) -> dict | None:
+    """体重から決める 1日の目標。"""
+    if not weight:
+        return None
+    return {"weight": weight, "protein_min": round(weight * config.PROTEIN_PER_KG),
+            "fat_min": round(weight * config.FAT_PER_KG_MIN), "fat_max": round(weight * config.FAT_PER_KG_MAX)}
+
+
+def meal_view(meal: Meal) -> dict:
+    return {"id": meal.id, "day": meal.day, "eaten_at": meal.eaten_at, "title": meal.title, "kcal": round(meal.kcal),
+            "protein": round(meal.protein, 1), "fat": round(meal.fat, 1), "carbs": round(meal.carbs, 1),
+            "items": json.loads(meal.items), "note": meal.note, "source": meal.source}
+
+
+def day_totals(meals: list[Meal]) -> dict:
+    return {"kcal": round(sum(m.kcal for m in meals)), "protein": round(sum(m.protein for m in meals), 1),
+            "fat": round(sum(m.fat for m in meals), 1), "carbs": round(sum(m.carbs for m in meals), 1),
+            "count": len(meals)}
+
+
+def ai_used_today(session: Session) -> int:
+    row = session.get(AiUsage, clock.today())
+    return row.count if row else 0
+
+
+@api.get("/meals")
+def read_meals(session: Session = Depends(get_session)):
+    today = clock.today()
+    since = today - timedelta(days=config.FOOD_HISTORY_DAYS - 1)
+    meals = session.exec(select(Meal).where(Meal.day >= since).order_by(Meal.eaten_at)).all()
+    by_day: dict = {}
+    for meal in meals:
+        by_day.setdefault(meal.day, []).append(meal)
+    return {
+        "today": today,
+        "meals": [meal_view(m) for m in by_day.get(today, [])],
+        "totals": day_totals(by_day.get(today, [])),
+        "targets": nutrition_targets(latest_weight(session)),
+        "history": [{"day": day, **day_totals(items)} for day, items in sorted(by_day.items(), reverse=True) if day != today],
+        "ai": {"available": food_ai.available(), "used": ai_used_today(session), "limit": config.FOOD_AI_DAILY_LIMIT},
+        "max_images": config.FOOD_MAX_IMAGES,
+    }
+
+
+@api.post("/meals/analyze")
+def analyze_meal(body: AnalyzeInput, session: Session = Depends(get_session)):
+    """写真や文字から AIに見積もってもらう（まだ記録はしない。画面で確かめて直してから 記録する）。"""
+    if not food_ai.available():
+        raise HTTPException(503, "AIがまだ設定されていません（OPENAI_API_KEY）。数字を自分で入れてね")
+    if not body.images and not body.note.strip():
+        raise HTTPException(400, "写真を選ぶか、食べたものを書いてね")
+    for image in body.images:
+        if not image.startswith(("data:image/jpeg;base64,", "data:image/png;base64,", "data:image/webp;base64,")):
+            raise HTTPException(400, "写真の形がちがいます")
+        if len(image) * 3 / 4 > config.FOOD_IMAGE_MAX_BYTES:
+            raise HTTPException(400, "写真が大きすぎます")
+    usage = session.get(AiUsage, clock.today()) or AiUsage(day=clock.today(), count=0)
+    if usage.count >= config.FOOD_AI_DAILY_LIMIT:
+        raise HTTPException(429, f"今日は もう{config.FOOD_AI_DAILY_LIMIT}回 AIを使いました。数字を自分で入れてね")
+    usage.count += 1  # 失敗しても 数える（何度も呼ばれて お金がかかるのを防ぐ）
+    session.add(usage)
+    session.commit()
+
+    result = food_ai.estimate(body.images, body.note, list(zip(body.questions, body.answers)))
+    if result is None:
+        raise HTTPException(502, "AIにつながらなかった。少し待ってから もう一度試してね")
+    if result.kind == "not_food":
+        raise HTTPException(400, "食べ物が見つからなかった。写真を撮り直すか、食べたものを書いてね")
+    return {
+        "kind": result.kind,
+        "items": [item.model_dump() for item in result.items],
+        "questions": result.questions,
+        "comment": result.comment,
+        "ai": {"available": True, "used": usage.count, "limit": config.FOOD_AI_DAILY_LIMIT},
+    }
+
+
+@api.post("/meals")
+def create_meal(body: MealInput, session: Session = Depends(get_session)):
+    now = clock.now()
+    eaten = naive(body.eaten_at) or now
+    if eaten > now + timedelta(minutes=5):
+        raise HTTPException(400, "これからの時刻は選べません")
+    items = [item.model_dump() for item in body.items]
+    meal = Meal(
+        day=clock.game_day(eaten), eaten_at=eaten, title="、".join(i["name"] for i in items)[:80],
+        kcal=sum(i["kcal"] for i in items), protein=sum(i["protein"] for i in items),
+        fat=sum(i["fat"] for i in items), carbs=sum(i["carbs"] for i in items),
+        items=json.dumps(items, ensure_ascii=False), note=body.note.strip() or None, source=body.source, created_at=now,
+    )
+    session.add(meal)
+    session.commit()
+    session.refresh(meal)
+    return meal_view(meal)
+
+
+@api.delete("/meals/{meal_id}")
+def delete_meal(meal_id: int, session: Session = Depends(get_session)):
+    meal = session.get(Meal, meal_id)
+    if meal is None:
+        raise HTTPException(404, "その食事の記録は見つかりません")
+    session.delete(meal)
+    session.commit()
+    return {"ok": True}
+
+
 # ---- ハビットモンスターが 取りに来る API（取りこみ用の合言葉が必要）----
 sync = APIRouter(prefix="/api/sync", dependencies=[Depends(auth.require_sync)])
 
@@ -495,6 +622,15 @@ def sync_import(body: ImportInput, session: Session = Depends(get_session)):
         mapping[str(item.source_id)] = w.id
     session.commit()
     return {"workouts": mapping, "exercise_count": len(by_name)}
+
+
+@sync.get("/meals")
+def sync_meals(since: str | None = None, session: Session = Depends(get_session)):
+    """食事の記録（since の日から。なければ ぜんぶ）。"""
+    query = select(Meal).order_by(Meal.eaten_at)
+    if since:
+        query = query.where(Meal.day >= datetime.fromisoformat(since).date())
+    return {"meals": [meal_view(m) for m in session.exec(query).all()]}
 
 
 @sync.delete("/workouts/{workout_id}")

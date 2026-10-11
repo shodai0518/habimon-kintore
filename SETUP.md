@@ -162,6 +162,21 @@ curl -X POST http://localhost:8000/api/workouts/push-history
 
 ---
 
+## 8. 食事の記録を使えるようにする（AI のキーを入れる）
+
+食事の写真から栄養を見積もるには、OpenAI のキーを Render に入れる。
+
+- [ ] https://platform.openai.com/settings/organization/limits を開いて、**月の上限金額**を決める（例：5ドル）。万一のときも、それ以上はかからない
+- [ ] Render の `habimon-kintore` →「Environment」→「Add Environment Variable」
+  - Key：`OPENAI_API_KEY`
+  - Value：ハビットモンスターの `.env` の `OPENAI_API_KEY=` の右側（`sk-` で始まる文字。前後の `"` は付けない）
+- [ ] 「Save Changes」を押す（アプリが自動で入れ直される。1〜2分）
+- [ ] スマホで「食事」タブを開いて、「AIに見積もってもらう」が押せるようになっていれば成功
+
+目安：写真1枚で 0.3〜1円くらい。1日に AI を使えるのは 30回まで（アプリ側で止める）。
+
+---
+
 ## 使い方（毎回）
 
 1. ジムで、スマホの筋トレアプリを開く（しばらく使っていないと、最初だけ 30秒〜1分かかる）
@@ -180,6 +195,8 @@ curl -X POST http://localhost:8000/api/workouts/push-history
 | 時刻が9時間ずれる | `APP_TIMEZONE` が `Asia/Tokyo` か |
 | ハビモンで「合言葉がちがうみたい」と出る | `.env` の `WORKOUT_APP_TOKEN` と、Render の `SYNC_TOKEN` が同じ文字か |
 | ハビモンで「つながらなかった」と出る | 筋トレアプリが休んでいるだけのことが多い。1分待って「取りこむ」をもう一度押す |
+| 食事で「AIがまだ設定されていません」と出る | Render の `OPENAI_API_KEY` が入っているか（手順8） |
+| 食事で「AIにつながらなかった」と出る | OpenAI の残高や上限を確かめる。少し待ってもう一度 |
 | 記録が消えた気がする | Neon の画面でプロジェクトが止まっていないか（無料プランは、長く使わないと止まることがある） |
 
 ---

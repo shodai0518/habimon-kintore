@@ -47,3 +47,27 @@ class WorkoutSet(SQLModel, table=True):
     distance_km: float | None = None  # 有酸素：距離（km）
     is_pr: bool = False  # 自己ベスト更新
     created_at: NaiveDatetime = Field(default_factory=datetime.now)
+
+
+class Meal(SQLModel, table=True):
+    """1回の食事（写真は保存しない。数字だけ）"""
+
+    id: int | None = Field(default=None, primary_key=True)
+    day: date = Field(index=True)  # 何日の分か（朝4時区切り）
+    eaten_at: NaiveDatetime
+    title: str  # 品目の名前をつなげたもの（一覧に出す）
+    kcal: float = 0
+    protein: float = 0  # g
+    fat: float = 0  # g
+    carbs: float = 0  # g
+    items: str = "[]"  # 品目ごとの内訳（JSON）
+    note: str | None = None  # 自分で書いた ひとこと
+    source: str = "manual"  # photo（写真）/ text（文字だけ）/ label（栄養成分表示）/ manual（自分で入力）
+    created_at: NaiveDatetime = Field(default_factory=datetime.now)
+
+
+class AiUsage(SQLModel, table=True):
+    """AIを使った回数（1日の上限を数える）"""
+
+    day: date = Field(primary_key=True)
+    count: int = 0

@@ -126,3 +126,28 @@ input, select, textarea { font-size: 16px; }
 @keyframes rest-flash { 50% { background: var(--accent); } }
 /* タイマーが出ている間は、下に隠れないように 余白をあける */
 body.resting #app { padding-bottom: calc(130px + env(safe-area-inset-bottom)); }
+
+/* タブ（筋トレ／食事） */
+.tabs { gap: 8px; flex-wrap: nowrap; }
+
+/* 食事の記録 */
+.meal-kcal { font-size: 2.2rem; line-height: 1.2; text-align: center; }
+.meal-kcal small { font-size: 1rem; color: var(--dim); }
+.meal-totals { margin-top: 6px; }
+.meal-total { display: flex; align-items: baseline; gap: 8px; padding: 4px 0; border-bottom: 1px dashed #333; }
+.meal-total span { flex: 0 0 5.5em; color: var(--dim); }
+.meal-total b { flex: 0 0 4.5em; text-align: right; font-weight: normal; }
+.meal-total small { flex: 1; font-size: 0.8rem; margin: 0; }
+.photo-pick { display: block; }
+.button-like { display: block; text-align: center; border: 2px solid var(--fg); border-radius: 6px; padding: 10px 12px; cursor: pointer; }
+.photo-row { display: flex; gap: 8px; margin-top: 8px; }
+.photo-row img { width: 96px; height: 96px; object-fit: cover; border: 2px solid var(--fg); border-radius: 6px; }
+#meal-note { width: 100%; margin-top: 8px; resize: vertical; line-height: 1.5; }
+.draft-item { display: flex; flex-direction: column; gap: 6px; padding: 10px 0; border-bottom: 1px dashed #444; }
+.draft-numbers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.draft-numbers label { display: flex; flex-direction: column; font-size: 0.7rem; color: var(--dim); }
+.draft-numbers input { width: 100%; padding: 6px 4px; }
+.draft-questions { border: 2px solid var(--accent); border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 8px; }
+.draft-questions h2 { margin: 0; }
+.draft-questions label { display: flex; flex-direction: column; gap: 4px; }
+.draft-total { margin-top: 10px; color: var(--accent); font-size: 0.9rem; }

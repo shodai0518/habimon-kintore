@@ -60,6 +60,18 @@ REST_STEP_SECONDS = 15
 REST_MIN_SECONDS = 15
 REST_MAX_SECONDS = 600
 
+# ---- 食事の記録 ----
+FOOD_AI_DAILY_LIMIT = 30  # 1日に AIに見積もってもらえる回数（使いすぎを防ぐ）
+FOOD_MAX_IMAGES = 2  # 1回に送れる写真の数（真上と斜め など）
+FOOD_IMAGE_MAX_BYTES = 1_500_000  # 写真1枚の大きさの上限（画面側で 小さくしてから送る）
+FOOD_MAX_QUESTIONS = 2  # AIが聞き返せる 質問の数
+FOOD_MAX_ITEMS = 15  # 1回の食事の 品目の数
+FOOD_HISTORY_DAYS = 14  # 履歴に出す日数
+# 目標（体重から決める。ハビットモンスターのご褒美の判定と 同じ数字）
+PROTEIN_PER_KG = 1.6  # たんぱく質：体重 × この数字(g) 以上
+FAT_PER_KG_MIN = 0.6  # 脂質：体重 × この数字(g) 以上
+FAT_PER_KG_MAX = 1.0  # 脂質：体重 × この数字(g) 以下
+
 # ---- ログイン ----
 LOGIN_DAYS = 180  # 1回ログインすると この日数 そのまま使える
 LOGIN_MAX_FAILURES = 10  # この回数 まちがえると しばらくログインできない

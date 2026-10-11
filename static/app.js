@@ -262,11 +262,296 @@ function confirmTwice(button, warning, action) {
   });
 }
 
+// ---- 食事の記録 ----
+const TAB_KEY = "kintore_tab";
+const tabsEl = document.getElementById("tabs");
+let tab = "workout"; // workout（筋トレ） / meal（食事）
+let mealPhotos = []; // 選んだ写真（小さくした data URL）
+let mealNote = "";
+let mealDraft = null; // AIの見積もり（まだ記録していない）{ items, questions, comment, source }
+
+tabsEl.querySelectorAll("[data-tab]").forEach((btn) =>
+  btn.addEventListener("click", () => {
+    tab = btn.dataset.tab;
+    store.set(TAB_KEY, tab);
+    render();
+  }),
+);
+
+// 写真を 長いほうの辺が 1024px になるように小さくして、JPEG にする（送る量と AIの費用をへらす）
+async function shrinkPhoto(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error("写真を読みこめなかった。別の写真で試してね"));
+      el.src = url;
+    });
+    const scale = Math.min(1, 1024 / Math.max(img.naturalWidth, img.naturalHeight));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(img.naturalWidth * scale);
+    canvas.height = Math.round(img.naturalHeight * scale);
+    canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.8);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+const num1 = (v) => Math.round(Number(v) * 10) / 10;
+const sumOf = (items, key) => num1(items.reduce((total, i) => total + (Number(i[key]) || 0), 0));
+
+function targetLine(label, value, unit, text, state) {
+  return `<li class="meal-total"><span>${label}</span><b>${value}${unit}</b><small class="${state}">${text}</small></li>`;
+}
+
+function mealSummary(data) {
+  const t = data.totals;
+  const g = data.targets;
+  const protein = g
+    ? t.protein >= g.protein_min
+      ? targetLine("たんぱく質", t.protein, "g", `目標 ${g.protein_min}g 達成！`, "ok")
+      : targetLine("たんぱく質", t.protein, "g", `目標 ${g.protein_min}g（あと${num1(g.protein_min - t.protein)}g）`, "hint")
+    : targetLine("たんぱく質", t.protein, "g", "", "hint");
+  const fat = g
+    ? t.fat > g.fat_max
+      ? targetLine("脂質", t.fat, "g", `目標 ${g.fat_min}〜${g.fat_max}g（${num1(t.fat - g.fat_max)}g オーバー）`, "ng")
+      : t.fat >= g.fat_min
+        ? targetLine("脂質", t.fat, "g", `目標 ${g.fat_min}〜${g.fat_max}g の中`, "ok")
+        : targetLine("脂質", t.fat, "g", `目標 ${g.fat_min}〜${g.fat_max}g（あと${num1(g.fat_min - t.fat)}g で範囲）`, "hint")
+    : targetLine("脂質", t.fat, "g", "", "hint");
+  return `<section class="window">
+    <h2>今日の食事（${dayLabel(data.today)}）</h2>
+    <p class="meal-kcal">${t.kcal}<small> kcal</small></p>
+    <ul class="meal-totals">
+      ${protein}
+      ${fat}
+      ${targetLine("炭水化物", t.carbs, "g", "", "hint")}
+    </ul>
+    <p class="hint">${
+      g
+        ? `目標は体重 ${g.weight}kg から計算（たんぱく質 ×1.6g 以上、脂質 ×0.6〜1.0g）。達成すると、次の日にハビモンでご褒美がもらえるよ。`
+        : "筋トレのときに体重を記録すると、たんぱく質と脂質の目標が出るよ。"
+    }</p>
+  </section>`;
+}
+
+function mealAddSection(data) {
+  const left = data.ai.limit - data.ai.used;
+  return `<section class="window">
+    <h2>食事を記録する</h2>
+    <form id="meal-form">
+      <label class="photo-pick">
+        <input type="file" id="meal-photos" accept="image/*" multiple hidden>
+        <span class="button-like">${mealPhotos.length ? `写真 ${mealPhotos.length}枚（選び直す）` : "写真を撮る・選ぶ"}</span>
+      </label>
+      ${mealPhotos.length ? `<div class="photo-row">${mealPhotos.map((p) => `<img src="${p}" alt="">`).join("")}</div>` : ""}
+      <textarea id="meal-note" rows="2" maxlength="300" placeholder="ひとこと（なくてもOK）例：ご飯大盛り／すき家の牛丼並盛／半分残した">${esc(mealNote)}</textarea>
+      <div class="row" style="margin-top:8px">
+        <button id="meal-analyze" class="grow" ${data.ai.available && left > 0 ? "" : "disabled"}>AIに見積もってもらう</button>
+        <button type="button" id="meal-manual" class="small">自分で入力</button>
+      </div>
+    </form>
+    <p class="hint">${
+      data.ai.available
+        ? `写真は ${data.max_images}枚まで（真上と斜め）。箸やスプーンも写すと、量が分かりやすい。パッケージの栄養成分表示を撮ると、数字をそのまま読むよ。写真なしで文字だけでもOK。<br>AIは 今日あと${left}回。写真は保存しないよ。`
+        : "AIがまだ設定されていないので、数字を自分で入れてね。"
+    }</p>
+  </section>`;
+}
+
+function draftSection() {
+  const d = mealDraft;
+  const rows = d.items
+    .map(
+      (item, i) => `<div class="draft-item" data-index="${i}">
+        <div class="row">
+          <input data-field="name" class="grow" maxlength="40" value="${esc(item.name)}" placeholder="料理・食品の名前">
+          <button type="button" class="small danger" data-remove="${i}" aria-label="消す">×</button>
+        </div>
+        <input data-field="amount" maxlength="40" value="${esc(item.amount)}" placeholder="量（例：茶碗1杯・150g）" style="width:100%">
+        <div class="draft-numbers">
+          <label><span>kcal</span><input type="number" data-field="kcal" step="1" min="0" inputmode="decimal" value="${item.kcal}"></label>
+          <label><span>たんぱく</span><input type="number" data-field="protein" step="0.1" min="0" inputmode="decimal" value="${item.protein}"></label>
+          <label><span>脂質</span><input type="number" data-field="fat" step="0.1" min="0" inputmode="decimal" value="${item.fat}"></label>
+          <label><span>炭水化物</span><input type="number" data-field="carbs" step="0.1" min="0" inputmode="decimal" value="${item.carbs}"></label>
+        </div>
+      </div>`,
+    )
+    .join("");
+  const questions = d.questions.length
+    ? `<div class="draft-questions">
+        <h2>AIからの質問</h2>
+        ${d.questions.map((q, i) => `<label>${esc(q)}<input data-answer="${i}" maxlength="60" placeholder="答え（空のままでもOK）"></label>`).join("")}
+        <button type="button" id="draft-reanalyze">答えて 見積もり直す</button>
+      </div>`
+    : "";
+  return `<section class="window">
+    <h2>${d.source === "manual" ? "自分で入力" : d.source === "label" ? "栄養成分表示から読み取った" : "AIの見積もり"}（確かめて、ちがうところは直してね）</h2>
+    ${d.comment ? `<p class="hint" style="margin-top:0">${esc(d.comment)}</p>` : ""}
+    ${questions}
+    <div id="draft-items">${rows}</div>
+    <button type="button" id="draft-add" class="small" style="margin-top:8px">＋品目を足す</button>
+    <p class="draft-total" id="draft-total"></p>
+    <div class="row" style="margin-top:8px">
+      <button type="button" id="draft-save" class="primary grow">記録する</button>
+      <button type="button" id="draft-cancel" class="small danger">やめる</button>
+    </div>
+  </section>`;
+}
+
+function mealListSection(data) {
+  const items = data.meals.length
+    ? data.meals
+        .map(
+          (m) => `<li>
+            <div class="row" style="justify-content:space-between">
+              <b>${hhmm(m.eaten_at)}　${m.kcal}kcal</b>
+              <button class="small danger" data-meal-delete="${m.id}">消す</button>
+            </div>
+            <div>${esc(m.title)}</div>
+            <small class="hint">たんぱく質 ${m.protein}g・脂質 ${m.fat}g・炭水化物 ${m.carbs}g</small>
+          </li>`,
+        )
+        .join("")
+    : '<li class="empty">今日はまだ記録がありません</li>';
+  const history = data.history.length
+    ? `<h2 style="margin-top:14px">これまで（最近2週間）</h2>
+       <ul class="list">${data.history
+         .map((h) => `<li class="history-line"><span>${dayLabel(h.day)}</span><span>${h.kcal}kcal／たんぱく質 ${h.protein}g・脂質 ${h.fat}g</span></li>`)
+         .join("")}</ul>`
+    : "";
+  return `<section class="window"><h2>今日 食べたもの</h2><ul class="list">${items}</ul>${history}</section>`;
+}
+
+function readDraft() {
+  document.querySelectorAll(".draft-item").forEach((row) => {
+    const item = mealDraft.items[Number(row.dataset.index)];
+    row.querySelectorAll("[data-field]").forEach((input) => {
+      const key = input.dataset.field;
+      item[key] = key === "name" || key === "amount" ? input.value : Number(input.value) || 0;
+    });
+  });
+}
+
+function drawDraftTotal() {
+  const el = document.getElementById("draft-total");
+  if (!el) return;
+  const items = mealDraft.items;
+  el.textContent = `合計：${Math.round(sumOf(items, "kcal"))}kcal／たんぱく質 ${sumOf(items, "protein")}g・脂質 ${sumOf(items, "fat")}g・炭水化物 ${sumOf(items, "carbs")}g`;
+}
+
+async function analyzeMeal(button, answers) {
+  button.disabled = true;
+  const label = button.textContent;
+  button.textContent = "AIが見ている…";
+  try {
+    const body = { images: mealPhotos, note: mealNote };
+    if (answers) Object.assign(body, { questions: mealDraft.questions, answers });
+    const res = await api("/meals/analyze", { method: "POST", body });
+    mealDraft = {
+      items: res.items,
+      questions: res.questions,
+      comment: res.comment,
+      source: res.kind === "label" ? "label" : mealPhotos.length ? "photo" : "text",
+    };
+  } finally {
+    button.disabled = false;
+    button.textContent = label;
+  }
+}
+
+function renderMeals(data) {
+  view.innerHTML = `${mealSummary(data)}${mealDraft ? draftSection() : mealAddSection(data)}${mealListSection(data)}`;
+
+  if (mealDraft) {
+    drawDraftTotal();
+    const items = document.getElementById("draft-items");
+    items.addEventListener("input", () => {
+      readDraft();
+      drawDraftTotal();
+    });
+    items.querySelectorAll("[data-remove]").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        readDraft();
+        mealDraft.items.splice(Number(btn.dataset.remove), 1);
+        renderMeals(data);
+      }),
+    );
+    document.getElementById("draft-add").addEventListener("click", () => {
+      readDraft();
+      mealDraft.items.push({ name: "", amount: "", kcal: 0, protein: 0, fat: 0, carbs: 0 });
+      renderMeals(data);
+    });
+    document.getElementById("draft-reanalyze")?.addEventListener("click", (e) =>
+      run(async () => {
+        const answers = [...document.querySelectorAll("[data-answer]")].map((input) => input.value);
+        await analyzeMeal(e.target, answers);
+        await render();
+      }),
+    );
+    document.getElementById("draft-cancel").addEventListener("click", () => {
+      mealDraft = null;
+      renderMeals(data);
+    });
+    document.getElementById("draft-save").addEventListener("click", (e) =>
+      run(async () => {
+        readDraft();
+        const items = mealDraft.items.filter((i) => i.name.trim());
+        if (!items.length) throw new Error("品目を1つ以上 入れてね");
+        e.target.disabled = true;
+        try {
+          await api("/meals", { method: "POST", body: { items, note: mealNote, source: mealDraft.source } });
+        } finally {
+          e.target.disabled = false;
+        }
+        mealDraft = null;
+        mealPhotos = [];
+        mealNote = "";
+        await render();
+      }),
+    );
+  } else {
+    const note = document.getElementById("meal-note");
+    note.addEventListener("input", () => (mealNote = note.value));
+    document.getElementById("meal-photos").addEventListener("change", (e) =>
+      run(async () => {
+        const files = [...e.target.files].slice(0, data.max_images);
+        mealPhotos = await Promise.all(files.map(shrinkPhoto));
+        renderMeals(data);
+      }),
+    );
+    document.getElementById("meal-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      if (!mealPhotos.length && !mealNote.trim()) return showMessages(["写真を選ぶか、食べたものを書いてね。"]);
+      run(async () => {
+        await analyzeMeal(document.getElementById("meal-analyze"));
+        await render();
+      });
+    });
+    document.getElementById("meal-manual").addEventListener("click", () => {
+      mealDraft = { items: [{ name: mealNote.trim().slice(0, 40), amount: "", kcal: 0, protein: 0, fat: 0, carbs: 0 }], questions: [], comment: "", source: "manual" };
+      renderMeals(data);
+    });
+  }
+
+  view.querySelectorAll("[data-meal-delete]").forEach((btn) =>
+    confirmTwice(btn, "本当に消す？", () =>
+      run(async () => {
+        await api(`/meals/${btn.dataset.mealDelete}`, { method: "DELETE" });
+        await render();
+      }),
+    ),
+  );
+}
+
 // ---- ログイン ----
 function renderLogin() {
   clearInterval(timer);
   stopRest();
   logoutBtn.hidden = true;
+  tabsEl.hidden = true;
   view.innerHTML = `
     <section class="window">
       <h2>ログイン</h2>
@@ -574,8 +859,16 @@ function renderActive(w, ex) {
 async function render() {
   clearInterval(timer);
   await run(async () => {
+    tabsEl.querySelectorAll("[data-tab]").forEach((b) => b.classList.toggle("selected", b.dataset.tab === tab));
+    if (tab === "meal") {
+      const meals = await api("/meals");
+      logoutBtn.hidden = false;
+      tabsEl.hidden = false;
+      return renderMeals(meals);
+    }
     const data = await api("/workouts");
     logoutBtn.hidden = false;
+    tabsEl.hidden = false;
     if (!data.current) {
       if (rest) stopRest(); // 筋トレが終わっていたら タイマーも片づける
       return renderStart(data);
@@ -584,5 +877,6 @@ async function render() {
   });
 }
 
+tab = store.get(TAB_KEY) === "meal" ? "meal" : "workout";
 restoreRest();
 render();

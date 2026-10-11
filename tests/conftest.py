@@ -25,7 +25,7 @@ def engine(monkeypatch):
     with Session(engine) as session:
         main.ensure_presets(session)
     monkeypatch.setattr(clock, "now", lambda: NOW)
-    for name in ("KINTORE_DEV", "APP_PASSWORD", "SECRET_KEY", "SYNC_TOKEN"):
+    for name in ("KINTORE_DEV", "APP_PASSWORD", "SECRET_KEY", "SYNC_TOKEN", "OPENAI_API_KEY"):  # 本物のAIは呼ばない
         monkeypatch.delenv(name, raising=False)
     auth._failures.clear()
     return engine
