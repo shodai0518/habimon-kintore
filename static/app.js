@@ -510,7 +510,7 @@ async function analyzeMeal(button, answers) {
 }
 
 function renderMeals(data) {
-  view.innerHTML = `${mealSummary(data)}${mealDraft ? draftSection() : `${menuSection(data)}${mealAddSection(data)}`}${mealListSection(data)}`;
+  view.innerHTML = `${mealSummary(data)}${mealDraft ? draftSection() : `${mealAddSection(data)}${menuSection(data)}`}${mealListSection(data)}`;
 
   if (mealDraft) {
     drawDraftTotal();
