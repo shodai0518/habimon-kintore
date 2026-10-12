@@ -175,3 +175,12 @@ button.star:hover, button.star:focus-visible { background: transparent; color: v
 .menu-others { margin-top: 8px; }
 .menu-others summary { cursor: pointer; color: var(--dim); padding: 6px 0; }
 input[type="search"] { -webkit-appearance: none; appearance: none; }
+
+/* たためる枠（▶ を押すと開く） */
+details.fold > summary { cursor: pointer; list-style: none; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+details.fold > summary::-webkit-details-marker { display: none; }
+details.fold > summary::before { content: "▶"; color: var(--dim); font-size: 0.95rem; flex: none; }
+details.fold[open] > summary::before { content: "▼"; }
+details.fold > summary h2 { margin: 0; display: inline; }
+details.fold > summary .hint { margin-top: 0; }
+details.fold[open] > summary { margin-bottom: 6px; }

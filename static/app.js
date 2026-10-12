@@ -383,6 +383,7 @@ function mealAddSection(data) {
 }
 
 // マイメニュー：よく食べるものを 選ぶだけで記録する（AIは使わない）
+let mealListOpen = false; // 「今日 食べたもの」を開いているか（記録した直後は 開く。画面を開き直すと たたまれる）
 let menuQuery = ""; // マイメニューの検索に入れた文字
 let menuOpen = false; // 「ほかのマイメニュー」を開いているか
 
@@ -465,6 +466,7 @@ function bindMenuList(data) {
         const servings = Number(list.querySelector(`[data-menu-servings="${btn.dataset.menuEat}"]`).value);
         try {
           await api(`/menu/${btn.dataset.menuEat}/eat`, { method: "POST", body: { servings } });
+          mealListOpen = true; // 入ったものを その場で確かめられるように 開く
         } finally {
           btn.disabled = false;
         }
@@ -572,7 +574,13 @@ function mealListSection(data) {
          .map((h) => `<li class="history-line"><span>${dayLabel(h.day)}</span><span>${h.kcal}kcal／たんぱく質 ${h.protein}g・脂質 ${h.fat}g</span></li>`)
          .join("")}</ul>`
     : "";
-  return `<section class="window"><h2>今日 食べたもの</h2><ul class="list">${items}</ul>${history}</section>`;
+  return `<section class="window">
+    <details class="fold" id="meal-list" ${mealListOpen ? "open" : ""}>
+      <summary><h2>今日 食べたもの（${data.totals.count}回・${data.totals.kcal}kcal）</h2></summary>
+      <ul class="list">${items}</ul>
+    </details>
+    ${history}
+  </section>`;
 }
 
 function readDraft() {
@@ -672,6 +680,7 @@ function renderMeals(data) {
               method: "POST",
               body: { items, note: mealNote, source: mealDraft.source, menu_name: mealDraft.menuCheck ? menuName : null },
             });
+            mealListOpen = true; // 入ったものを その場で確かめられるように 開く
           }
         } finally {
           e.target.disabled = false;
@@ -719,6 +728,7 @@ function renderMeals(data) {
     });
   }
 
+  document.getElementById("meal-list")?.addEventListener("toggle", (e) => (mealListOpen = e.target.open));
   bindMenuList(data);
   // 検索：入力するたびに 一覧だけ描き直す（入力欄は そのままなので 文字を打ち続けられる）
   document.getElementById("menu-search")?.addEventListener("input", (e) => {
@@ -860,7 +870,13 @@ function historySection(history) {
         .map(
           (w) => `
         <li>
-          <b>${dayLabel(w.day)}</b> <small class="hint">${hhmm(w.started_at)}〜${hhmm(w.ended_at)}・${w.minutes}分${w.body_weight ? `・${w.body_weight}kg` : ""}</small>
+          <details class="fold">
+            <summary>
+              <b>${dayLabel(w.day)}</b>
+              <small class="hint">${hhmm(w.started_at)}〜${hhmm(w.ended_at)}・${w.minutes}分${w.body_weight ? `・${w.body_weight}kg` : ""}${
+                w.kcal !== null ? `・約${w.kcal}kcal` : ""
+              }</small>
+            </summary>
           ${w.exercises
             .map(
               (g) => `<div class="history-line"><span>${esc(g.name)}${g.kcal ? `<br><small class="kcal">約${g.kcal}kcal${g.warmup ? `（アップ${g.warmup}セット込み）` : ""}</small>` : ""}</span><span>${g.sets
@@ -870,12 +886,13 @@ function historySection(history) {
             .join("")}
           ${w.kcal !== null ? `<div class="kcal">消費カロリー 約${w.kcal}kcal</div>` : ""}
           ${w.memo ? `<small class="hint">${esc(w.memo)}</small>` : ""}
+          </details>
         </li>`,
         )
         .join("")
     : '<li class="empty">まだ記録がありません</li>';
   return `<section class="window"><h2>筋トレの履歴（最近90日）</h2><ul class="list">${items}</ul>
-    <p class="hint">グラフや経験値は、パソコンのハビットモンスターで見られるよ。</p></section>`;
+    <p class="hint">日付を押すと、種目とセットが開くよ。グラフや経験値は、パソコンのハビットモンスターで見られる。</p></section>`;
 }
 
 // ---- 記録中の画面 ----
