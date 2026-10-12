@@ -4,6 +4,8 @@
 起動（パソコンで試すとき）: KINTORE_DEV=1 python -m uvicorn app.main:app --port 8100
 """
 
+import base64
+import hashlib
 import json
 import os
 from contextlib import asynccontextmanager
@@ -246,6 +248,33 @@ def create_exercise(body: ExerciseInput, session: Session = Depends(get_session)
     session.commit()
     session.refresh(ex)
     return exercise_view(session, ex)
+
+
+def get_partner(session: Session) -> dict | None:
+    setting = session.get(AppSetting, PARTNER_KEY)
+    return json.loads(setting.value) if setting else None
+
+
+@api.get("/partner")
+def read_partner(session: Session = Depends(get_session)):
+    """ハビットモンスターの相棒（まだ届いていなければ null）。"""
+    partner = get_partner(session)
+    if partner is None:
+        return {"partner": None}
+    return {"partner": {
+        "name": partner["name"], "rank": partner["rank"], "level": partner["level"],
+        # 画像が変わると 番号も変わるので、ずっと覚えておいてもらって大丈夫
+        "image_url": f"/api/partner/image?v={partner['version']}" if partner.get("image") else None,
+    }}
+
+
+@api.get("/partner/image")
+def read_partner_image(session: Session = Depends(get_session)):
+    partner = get_partner(session)
+    if partner is None or not partner.get("image"):
+        raise HTTPException(404, "相棒の画像がありません")
+    return Response(base64.b64decode(partner["image"]), media_type="image/webp",
+                    headers={"Cache-Control": "private, max-age=31536000, immutable"})
 
 
 @api.get("/workouts")
@@ -844,6 +873,36 @@ def sync_profile(body: ProfileInput, session: Session = Depends(get_session)):
     setting = session.get(AppSetting, PROFILE_KEY)
     if setting is None:
         session.add(AppSetting(key=PROFILE_KEY, value=value))
+    else:
+        setting.value = value
+    session.commit()
+    return {"ok": True}
+
+
+PARTNER_KEY = "partner"  # ハビットモンスターの相棒（名前・ランク・レベル・画像）。見るだけ
+
+
+class PartnerInput(BaseModel):
+    name: str = Field(min_length=1, max_length=20)
+    rank: str = Field(min_length=1, max_length=2)
+    level: int = Field(ge=1, le=999)
+    image: str | None = Field(default=None, max_length=800_000)  # WebP を base64 にした文字
+
+
+@sync.put("/partner")
+def sync_partner(body: PartnerInput, session: Session = Depends(get_session)):
+    """ハビットモンスターの相棒を 覚える（画面のいちばん上に出す）。"""
+    version = None
+    if body.image:
+        try:
+            base64.b64decode(body.image, validate=True)
+        except ValueError as err:
+            raise HTTPException(400, "画像の形がちがいます") from err
+        version = hashlib.sha1(body.image.encode()).hexdigest()[:12]
+    value = json.dumps({**body.model_dump(), "version": version}, ensure_ascii=False)
+    setting = session.get(AppSetting, PARTNER_KEY)
+    if setting is None:
+        session.add(AppSetting(key=PARTNER_KEY, value=value))
     else:
         setting.value = value
     session.commit()

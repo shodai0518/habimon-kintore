@@ -216,3 +216,31 @@ def test_add_missing_bool_column(tmp_path, monkeypatch):
     assert db.add_missing_columns() == ["menuitem.favorite"]
     with engine.begin() as conn:
         assert conn.execute(text("SELECT name, use_count, favorite FROM menuitem")).one() == ("オイコス", 3, 0)
+
+
+def test_partner_from_habimon(client):
+    """ハビットモンスターが送ってきた相棒を 出す（画像は 別に取りにいく）。"""
+    import base64
+
+    assert client.get("/api/partner").json() == {"partner": None}
+    assert client.get("/api/partner/image").status_code == 404
+
+    image = base64.b64encode(b"RIFF....WEBP-no-nakami").decode()
+    assert client.put("/api/sync/partner", json={"name": "キノバット", "rank": "E", "level": 6, "image": image}).json()["ok"]
+    partner = client.get("/api/partner").json()["partner"]
+    assert (partner["name"], partner["rank"], partner["level"]) == ("キノバット", "E", 6)
+    res = client.get(partner["image_url"])
+    assert res.content == b"RIFF....WEBP-no-nakami" and res.headers["content-type"] == "image/webp"
+    assert "immutable" in res.headers["cache-control"]
+
+    # レベルが上がった（画像は同じ）→ 画像の番号は そのまま
+    client.put("/api/sync/partner", json={"name": "キノバット", "rank": "E", "level": 7, "image": image})
+    again = client.get("/api/partner").json()["partner"]
+    assert again["level"] == 7 and again["image_url"] == partner["image_url"]
+
+    # 画像がない（卵など）
+    client.put("/api/sync/partner", json={"name": "卵", "rank": "D", "level": 1, "image": None})
+    assert client.get("/api/partner").json()["partner"] == {"name": "卵", "rank": "D", "level": 1, "image_url": None}
+
+    assert client.put("/api/sync/partner", json={"name": "x", "rank": "E", "level": 1, "image": "これは画像じゃない"}).status_code == 400
+    assert client.put("/api/sync/partner", json={"name": "", "rank": "E", "level": 1}).status_code == 422

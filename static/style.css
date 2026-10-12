@@ -184,3 +184,16 @@ details.fold[open] > summary::before { content: "▼"; }
 details.fold > summary h2 { margin: 0; display: inline; }
 details.fold > summary .hint { margin-top: 0; }
 details.fold[open] > summary { margin-bottom: 6px; }
+
+/* 相棒（いちばん上の帯。帯の高さは 変えない） */
+.status-window.with-partner { padding-top: 5px; padding-bottom: 5px; }
+button.partner { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; padding: 0; border: none; background: none; color: var(--fg); text-align: left; }
+button.partner:hover, button.partner:focus-visible { background: none; color: var(--fg); }
+button.partner img { width: 42px; height: 42px; object-fit: contain; flex: none; }
+.partner-text { display: flex; align-items: baseline; gap: 8px; min-width: 0; white-space: nowrap; overflow: hidden; }
+.partner-text .name { overflow: hidden; text-overflow: ellipsis; }
+.partner-text small { color: var(--dim); flex: none; }
+.zoom-back { position: fixed; inset: 0; z-index: 40; background: rgba(0, 0, 0, 0.85); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.zoom-box { width: 100%; max-width: 420px; text-align: center; }
+.zoom-box img { width: 100%; max-width: 340px; aspect-ratio: 1; object-fit: contain; }
+.zoom-box .name { color: var(--accent); }

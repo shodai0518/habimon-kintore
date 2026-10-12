@@ -262,6 +262,53 @@ function confirmTwice(button, warning, action) {
   });
 }
 
+// ---- 相棒（ハビットモンスターから届く。見るだけ）----
+const partnerBtn = document.getElementById("partner");
+const appName = document.getElementById("app-name");
+let partner = null;
+let partnerLoadedAt = 0;
+
+function showPartner() {
+  partnerBtn.hidden = !partner;
+  appName.hidden = !!partner;
+  document.querySelector(".status-window").classList.toggle("with-partner", !!partner);
+  if (!partner) return;
+  partnerBtn.innerHTML = `
+    ${partner.image_url ? `<img src="${partner.image_url}" alt="">` : ""}
+    <span class="partner-text"><span class="name">${esc(partner.name)}</span><small>ランク${esc(partner.rank)} Lv${partner.level}</small></span>`;
+}
+
+// 画面を描くついでに 取りにいく（1分に1回まで。失敗しても 記録のじゃまをしない）
+async function loadPartner() {
+  if (Date.now() - partnerLoadedAt < 60000) return;
+  partnerLoadedAt = Date.now();
+  try {
+    partner = (await api("/partner")).partner;
+    showPartner();
+  } catch {
+    partnerLoadedAt = 0;
+  }
+}
+
+function hidePartner() {
+  partner = null;
+  partnerLoadedAt = 0;
+  showPartner();
+}
+
+partnerBtn.addEventListener("click", () => {
+  if (!partner?.image_url) return;
+  const back = document.createElement("div");
+  back.className = "zoom-back";
+  back.innerHTML = `<div class="window zoom-box">
+    <img src="${partner.image_url}" alt="">
+    <p><span class="name">${esc(partner.name)}</span>　ランク${esc(partner.rank)} Lv${partner.level}</p>
+    <p class="hint">押すと閉じるよ</p>
+  </div>`;
+  back.addEventListener("click", () => back.remove());
+  document.body.appendChild(back);
+});
+
 // ---- 食事の記録 ----
 const TAB_KEY = "kintore_tab";
 const tabsEl = document.getElementById("tabs");
@@ -778,6 +825,7 @@ function renderLogin() {
   stopRest();
   logoutBtn.hidden = true;
   tabsEl.hidden = true;
+  hidePartner();
   view.innerHTML = `
     <section class="window">
       <h2>ログイン</h2>
@@ -1107,11 +1155,13 @@ async function render() {
       const meals = await api("/meals");
       logoutBtn.hidden = false;
       tabsEl.hidden = false;
+      loadPartner();
       return renderMeals(meals);
     }
     const data = await api("/workouts");
     logoutBtn.hidden = false;
     tabsEl.hidden = false;
+    loadPartner();
     if (!data.current) {
       if (rest) stopRest(); // 筋トレが終わっていたら タイマーも片づける
       return renderStart(data);
