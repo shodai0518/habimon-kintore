@@ -5,6 +5,7 @@
 """
 
 import json
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -898,7 +899,8 @@ def me():
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True}
+    """動いているか と、どの版か（Render が入れてくれる コミットの番号の 先頭7文字）。入れ替わったかの確認に使う。"""
+    return {"ok": True, "version": (os.getenv("RENDER_GIT_COMMIT") or "local")[:7]}
 
 
 app.include_router(api)
