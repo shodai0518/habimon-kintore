@@ -171,3 +171,17 @@ def test_four_photos_are_all_sent_to_ai(client, ai):
     photos = ["data:image/jpeg;base64," + c * 400 for c in "ABCD"]
     assert client.post("/api/meals/analyze", json={"images": photos}).status_code == 200
     assert ai[-1]["images"] == photos and client.get("/api/meals").json()["max_images"] == 4
+
+
+def test_menu_favorites_come_first(client):
+    a = client.post("/api/menu", json={"name": "オイコス", "items": [OIKOS]}).json()
+    b = client.post("/api/menu", json={"name": "唐揚げ定食", "items": [RICE, CHICKEN]}).json()
+    assert a["favorite"] is False
+    client.post(f"/api/menu/{b['id']}/eat", json={})  # 最近使ったのは 唐揚げ定食
+    assert [m["name"] for m in client.get("/api/meals").json()["menu"]] == ["唐揚げ定食", "オイコス"]
+    assert client.put(f"/api/menu/{a['id']}/favorite", json={"favorite": True}).json()["favorite"] is True
+    menu = client.get("/api/meals").json()["menu"]
+    assert [(m["name"], m["favorite"]) for m in menu] == [("オイコス", True), ("唐揚げ定食", False)]  # お気に入りが先
+    client.put(f"/api/menu/{a['id']}/favorite", json={"favorite": False})
+    assert [m["name"] for m in client.get("/api/meals").json()["menu"]] == ["唐揚げ定食", "オイコス"]
+    assert client.put("/api/menu/999/favorite", json={"favorite": True}).status_code == 404

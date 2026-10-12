@@ -419,6 +419,10 @@ class MenuFromMealInput(BaseModel):
     name: str = Field(min_length=1, max_length=40)
 
 
+class FavoriteInput(BaseModel):
+    favorite: bool
+
+
 class EatInput(BaseModel):
     servings: float = Field(default=1, gt=0, le=10)  # 何個（何人前）ぶん食べたか
 
@@ -494,15 +498,15 @@ def day_totals(meals: list[Meal]) -> dict:
 
 # ---- マイメニュー ----
 def menu_items(session: Session) -> list[MenuItem]:
-    """よく使う順（最近使ったものが上）。"""
+    """お気に入りが先。その中では 最近使ったものが上。"""
     items = session.exec(select(MenuItem)).all()
-    return sorted(items, key=lambda m: (m.last_used or m.created_at, m.last_used is not None, m.id), reverse=True)
+    return sorted(items, key=lambda m: (m.favorite, m.last_used or m.created_at, m.last_used is not None, m.id), reverse=True)
 
 
 def menu_view(item: MenuItem) -> dict:
     return {"id": item.id, "name": item.name, "kcal": round(item.kcal), "protein": round(item.protein, 1),
             "fat": round(item.fat, 1), "carbs": round(item.carbs, 1), "items": json.loads(item.items),
-            "use_count": item.use_count}
+            "use_count": item.use_count, "favorite": item.favorite}
 
 
 def save_menu(session: Session, name: str, items: list[dict], menu: MenuItem | None = None) -> MenuItem:
@@ -632,6 +636,18 @@ def update_menu(menu_id: int, body: MenuInput, session: Session = Depends(get_se
     if menu is None:
         raise HTTPException(404, "そのマイメニューは見つかりません")
     save_menu(session, body.name, [item.model_dump() for item in body.items], menu)
+    session.commit()
+    session.refresh(menu)
+    return menu_view(menu)
+
+
+@api.put("/menu/{menu_id}/favorite")
+def favorite_menu(menu_id: int, body: FavoriteInput, session: Session = Depends(get_session)):
+    """お気に入りにする・外す。"""
+    menu = session.get(MenuItem, menu_id)
+    if menu is None:
+        raise HTTPException(404, "そのマイメニューは見つかりません")
+    menu.favorite = body.favorite
     session.commit()
     session.refresh(menu)
     return menu_view(menu)

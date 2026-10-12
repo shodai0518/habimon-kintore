@@ -383,6 +383,61 @@ function mealAddSection(data) {
 }
 
 // マイメニュー：よく食べるものを 選ぶだけで記録する（AIは使わない）
+let menuQuery = ""; // マイメニューの検索に入れた文字
+let menuOpen = false; // 「ほかのマイメニュー」を開いているか
+
+// ひらがな・カタカナ、全角・半角、大文字・小文字の ちがいを気にせずに 探せるようにする
+function searchKey(text) {
+  return String(text)
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60))
+    .replace(/\s+/g, "");
+}
+
+function menuItemHtml(m, options) {
+  return `<li class="menu-item">
+    <div class="menu-head">
+      <div class="menu-main">
+        <b>${esc(m.name)}</b>
+        <small class="hint">${m.kcal}kcal・たんぱく質 ${m.protein}g・脂質 ${m.fat}g・炭水化物 ${m.carbs}g</small>
+      </div>
+      <button class="small star ${m.favorite ? "on" : ""}" data-menu-favorite="${m.id}" aria-label="${m.favorite ? "お気に入りから外す" : "お気に入りにする"}">${m.favorite ? "★" : "☆"}</button>
+    </div>
+    <div class="row menu-actions">
+      <select data-menu-servings="${m.id}" aria-label="量">${options}</select>
+      <button data-menu-eat="${m.id}">食べた</button>
+      <button class="small" data-menu-edit="${m.id}">直す</button>
+      <button class="small danger" data-menu-delete="${m.id}">消す</button>
+    </div>
+  </li>`;
+}
+
+// マイメニューの一覧（お気に入りは いつも見える。ほかは たためる。検索中は 当てはまるものを ぜんぶ出す）
+function menuListHtml(data) {
+  const options = data.servings.map((n) => `<option value="${n}" ${n === 1 ? "selected" : ""}>×${n}</option>`).join("");
+  const key = searchKey(menuQuery);
+  if (key) {
+    const hits = data.menu.filter((m) => searchKey(m.name).includes(key));
+    return hits.length
+      ? `<ul class="list">${hits.map((m) => menuItemHtml(m, options)).join("")}</ul>`
+      : '<p class="empty">当てはまるマイメニューがありません</p>';
+  }
+  const favorites = data.menu.filter((m) => m.favorite);
+  const others = data.menu.filter((m) => !m.favorite);
+  const favoriteHtml = favorites.length
+    ? `<ul class="list">${favorites.map((m) => menuItemHtml(m, options)).join("")}</ul>`
+    : '<p class="hint" style="margin-top:0">☆を押すと お気に入りになって、いつもここに出るよ。</p>';
+  const otherHtml = others.length
+    ? `<details class="menu-others" ${menuOpen || !favorites.length ? "open" : ""}>
+         <summary>ほかのマイメニュー（${others.length}）</summary>
+         <ul class="list">${others.map((m) => menuItemHtml(m, options)).join("")}</ul>
+       </details>`
+    : "";
+  return favoriteHtml + otherHtml;
+}
+
+// マイメニュー：よく食べるものを 選ぶだけで記録する（AIは使わない）
 function menuSection(data) {
   if (!data.menu.length) {
     return `<section class="window">
@@ -391,26 +446,57 @@ function menuSection(data) {
         記録するときに「マイメニューにも登録」にチェックするか、下の「今日 食べたもの」の「登録」から。</p>
     </section>`;
   }
-  const options = data.servings.map((n) => `<option value="${n}" ${n === 1 ? "selected" : ""}>×${n}</option>`).join("");
   return `<section class="window">
     <h2>マイメニュー（${data.menu.length}）</h2>
-    <ul class="list">${data.menu
-      .map(
-        (m) => `<li class="menu-item">
-          <div class="menu-main">
-            <b>${esc(m.name)}</b>
-            <small class="hint">${m.kcal}kcal・たんぱく質 ${m.protein}g・脂質 ${m.fat}g・炭水化物 ${m.carbs}g</small>
-          </div>
-          <div class="row menu-actions">
-            <select data-menu-servings="${m.id}" aria-label="量">${options}</select>
-            <button data-menu-eat="${m.id}">食べた</button>
-            <button class="small" data-menu-edit="${m.id}">直す</button>
-            <button class="small danger" data-menu-delete="${m.id}">消す</button>
-          </div>
-        </li>`,
-      )
-      .join("")}</ul>
+    <input type="search" id="menu-search" placeholder="名前で探す" value="${esc(menuQuery)}" autocomplete="off" style="width:100%">
+    <div id="menu-list" style="margin-top:8px">${menuListHtml(data)}</div>
   </section>`;
+}
+
+// マイメニューの一覧の ボタンを つなぐ（検索で 一覧だけ描き直したときにも 呼ぶ）
+function bindMenuList(data) {
+  const list = document.getElementById("menu-list");
+  if (!list) return;
+  list.querySelector(".menu-others")?.addEventListener("toggle", (e) => (menuOpen = e.target.open));
+  list.querySelectorAll("[data-menu-eat]").forEach((btn) =>
+    btn.addEventListener("click", () =>
+      run(async () => {
+        btn.disabled = true;
+        const servings = Number(list.querySelector(`[data-menu-servings="${btn.dataset.menuEat}"]`).value);
+        try {
+          await api(`/menu/${btn.dataset.menuEat}/eat`, { method: "POST", body: { servings } });
+        } finally {
+          btn.disabled = false;
+        }
+        await render();
+      }),
+    ),
+  );
+  list.querySelectorAll("[data-menu-favorite]").forEach((btn) =>
+    btn.addEventListener("click", () =>
+      run(async () => {
+        const m = data.menu.find((x) => x.id === Number(btn.dataset.menuFavorite));
+        await api(`/menu/${m.id}/favorite`, { method: "PUT", body: { favorite: !m.favorite } });
+        await render();
+      }),
+    ),
+  );
+  list.querySelectorAll("[data-menu-edit]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const m = data.menu.find((x) => x.id === Number(btn.dataset.menuEdit));
+      mealDraft = { items: m.items.map((i) => ({ ...i })), questions: [], comment: "", source: "manual", menuId: m.id, menuName: m.name };
+      renderMeals(data);
+      window.scrollTo(0, 0);
+    }),
+  );
+  list.querySelectorAll("[data-menu-delete]").forEach((btn) =>
+    confirmTwice(btn, "本当に消す？", () =>
+      run(async () => {
+        await api(`/menu/${btn.dataset.menuDelete}`, { method: "DELETE" });
+        await render();
+      }),
+    ),
+  );
 }
 
 function draftSection() {
@@ -633,36 +719,13 @@ function renderMeals(data) {
     });
   }
 
-  view.querySelectorAll("[data-menu-eat]").forEach((btn) =>
-    btn.addEventListener("click", () =>
-      run(async () => {
-        btn.disabled = true;
-        const servings = Number(view.querySelector(`[data-menu-servings="${btn.dataset.menuEat}"]`).value);
-        try {
-          await api(`/menu/${btn.dataset.menuEat}/eat`, { method: "POST", body: { servings } });
-        } finally {
-          btn.disabled = false;
-        }
-        await render();
-      }),
-    ),
-  );
-  view.querySelectorAll("[data-menu-edit]").forEach((btn) =>
-    btn.addEventListener("click", () => {
-      const m = data.menu.find((x) => x.id === Number(btn.dataset.menuEdit));
-      mealDraft = { items: m.items.map((i) => ({ ...i })), questions: [], comment: "", source: "manual", menuId: m.id, menuName: m.name };
-      renderMeals(data);
-      window.scrollTo(0, 0);
-    }),
-  );
-  view.querySelectorAll("[data-menu-delete]").forEach((btn) =>
-    confirmTwice(btn, "本当に消す？", () =>
-      run(async () => {
-        await api(`/menu/${btn.dataset.menuDelete}`, { method: "DELETE" });
-        await render();
-      }),
-    ),
-  );
+  bindMenuList(data);
+  // 検索：入力するたびに 一覧だけ描き直す（入力欄は そのままなので 文字を打ち続けられる）
+  document.getElementById("menu-search")?.addEventListener("input", (e) => {
+    menuQuery = e.target.value;
+    document.getElementById("menu-list").innerHTML = menuListHtml(data);
+    bindMenuList(data);
+  });
   // 記録した食事を マイメニューに登録する：ボタンを 名前の入力欄に変える
   view.querySelectorAll("[data-meal-register]").forEach((btn) =>
     btn.addEventListener("click", () => {

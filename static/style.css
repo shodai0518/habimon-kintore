@@ -168,3 +168,10 @@ body.resting #app { padding-bottom: calc(130px + env(safe-area-inset-bottom)); }
 /* 基礎代謝・使ったカロリー */
 .meal-totals.energy { margin-bottom: 10px; padding-bottom: 6px; border-bottom: 2px solid #444; }
 .bmr-value { color: var(--fg); font-weight: normal; }
+.menu-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+button.star { flex: none; font-size: 1.1rem; padding: 2px 10px; border-color: #666; color: var(--dim); }
+button.star.on { color: var(--accent); border-color: var(--accent); }
+button.star:hover, button.star:focus-visible { background: transparent; color: var(--accent); }
+.menu-others { margin-top: 8px; }
+.menu-others summary { cursor: pointer; color: var(--dim); padding: 6px 0; }
+input[type="search"] { -webkit-appearance: none; appearance: none; }

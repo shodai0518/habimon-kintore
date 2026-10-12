@@ -199,3 +199,20 @@ def test_live_workout_kcal_uses_actual_rest(client, monkeypatch):
     at["now"] = NOW + timedelta(minutes=40)
     res = client.post(f"/api/workouts/{w['id']}/finish", json={}).json()
     assert res["workout"]["kcal"] == round(6.0 * 70 * 15 / 60 * 1.05)
+
+
+def test_add_missing_bool_column(tmp_path, monkeypatch):
+    """あとから足した「お気に入り」の列（最初は False）が、前からあるテーブルに足される。"""
+    from sqlalchemy import text
+    from sqlmodel import create_engine
+
+    from app import db
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'old.db'}")
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE menuitem (id INTEGER PRIMARY KEY, name VARCHAR NOT NULL, kcal FLOAT NOT NULL, protein FLOAT NOT NULL, fat FLOAT NOT NULL, carbs FLOAT NOT NULL, items VARCHAR NOT NULL, use_count INTEGER NOT NULL, last_used DATETIME, created_at DATETIME NOT NULL)"))
+        conn.execute(text("INSERT INTO menuitem VALUES (1, 'オイコス', 92, 12, 0, 5.4, '[]', 3, NULL, '2026-10-11 00:00:00')"))
+    monkeypatch.setattr(db, "engine", engine)
+    assert db.add_missing_columns() == ["menuitem.favorite"]
+    with engine.begin() as conn:
+        assert conn.execute(text("SELECT name, use_count, favorite FROM menuitem")).one() == ("オイコス", 3, 0)

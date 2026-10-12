@@ -84,6 +84,7 @@ class MenuItem(SQLModel, table=True):
     carbs: float = 0
     items: str = "[]"  # 品目ごとの内訳（JSON）
     use_count: int = 0
+    favorite: bool = False  # お気に入り（いつも見えるところに出す）
     last_used: NaiveDatetime | None = None
     created_at: NaiveDatetime = Field(default_factory=datetime.now)
 
