@@ -8,7 +8,8 @@ def exercise_id(client, name):
 
 
 def record(client, name="ベンチプレス", sets=((90, 5),), minutes=60, weight=70, start=None):
-    start = start or NOW - timedelta(minutes=minutes)
+    """あとから記録する形（終了が 10分前）。セットを追加した時刻は 筋トレの時間の外なので、決まった長さで数える。"""
+    start = start or NOW - timedelta(minutes=minutes + 10)
     w = client.post("/api/workouts/start", json={"body_weight": weight, "started_at": start.isoformat(),
                                                   "planned_end": (start + timedelta(minutes=minutes)).isoformat()}).json()
     ex = exercise_id(client, name)
@@ -54,7 +55,7 @@ def test_record_flow_with_warmup_and_calories(client):
     assert view["exercises"][0]["warmup"] == 2
     # ベンチ（ビッグ3）2セット × 2.5分 ＋ アップ2セット × 1.5分 = 8分
     assert view["kcal"] == round(6.0 * 70 * 8 / 60 * 1.05)
-    res = client.post(f"/api/workouts/{wid}/finish", json={"ended_at": NOW.isoformat()}).json()
+    res = client.post(f"/api/workouts/{wid}/finish", json={"ended_at": (NOW - timedelta(minutes=10)).isoformat()}).json()
     assert res["workout"]["status"] == "done" and res["workout"]["minutes"] == 60
     data = client.get("/api/workouts").json()
     assert data["current"] is None and data["history"][0]["id"] == wid and data["last_weight"] == 70
@@ -92,7 +93,7 @@ def test_sync_export(client):
     wid, bench = record(client)
     client.put(f"/api/workouts/{wid}/warmup", json={"exercise_id": bench, "sets": 1})
     assert client.get("/api/sync/workouts").json()["workouts"] == []  # 記録中のものは 出さない
-    client.post(f"/api/workouts/{wid}/finish", json={"ended_at": NOW.isoformat()})
+    client.post(f"/api/workouts/{wid}/finish", json={"ended_at": (NOW - timedelta(minutes=10)).isoformat()})
     client.post("/api/exercises", json={"name": "ケトルベルスイング", "part": "legs"})
     data = client.get("/api/sync/workouts?since=2026-10-01").json()
     w = data["workouts"][0]
@@ -179,3 +180,22 @@ def test_add_missing_columns(tmp_path, monkeypatch):
     with engine.begin() as conn:
         assert {"rest_seconds", "warmup_sets"} <= {c["name"] for c in inspect(conn).get_columns("exercise")}
         assert conn.execute(text("SELECT name, warmup_sets, rest_seconds FROM exercise")).one() == ("ベンチプレス", 0, None)
+
+
+def test_live_workout_kcal_uses_actual_rest(client, monkeypatch):
+    """今やっている筋トレ：セットを追加した時刻の間（休憩＋動いている時間）で カロリーを数える。"""
+    from app import clock
+
+    at = {"now": NOW}
+    monkeypatch.setattr(clock, "now", lambda: at["now"])
+    bench = exercise_id(client, "ベンチプレス")
+    w = client.post("/api/workouts/start", json={"body_weight": 70}).json()
+    client.put(f"/api/workouts/{w['id']}/warmup", json={"exercise_id": bench, "sets": 2})
+    for minute in (7, 10, 30):  # 7分後（アップ込み）・10分後・30分後（長く空いた）
+        at["now"] = NOW + timedelta(minutes=minute)
+        view = client.post(f"/api/workouts/{w['id']}/sets", json={"exercise_id": bench, "weight": 90, "reps": 5}).json()
+    # 7分（上限は 5＋アップ3分＝8分）＋ 3分 ＋ 5分（20分あいたが 上限まで）= 15分
+    assert view["kcal"] == round(6.0 * 70 * 15 / 60 * 1.05)
+    at["now"] = NOW + timedelta(minutes=40)
+    res = client.post(f"/api/workouts/{w['id']}/finish", json={}).json()
+    assert res["workout"]["kcal"] == round(6.0 * 70 * 15 / 60 * 1.05)

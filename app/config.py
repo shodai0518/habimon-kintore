@@ -1,6 +1,7 @@
 """筋トレアプリの決まりごと（ハビットモンスターの筋トレの部分と 同じ数字）。"""
 
 import os
+from datetime import timedelta
 
 APP_NAME = "ハビモン筋トレ"
 TIMEZONE = os.getenv("APP_TIMEZONE", "Asia/Tokyo")  # サーバーがどこにあっても、この時間で記録する
@@ -31,6 +32,10 @@ CALORIE_REST_MINUTES = 1.0  # セットの間の休憩
 CALORIE_BIG3_REST_MINUTES = 2.0  # ビッグ3は 休憩が長い
 BIG3_EXERCISES = ("ベンチプレス", "スクワット", "デッドリフト")
 CALORIE_WARMUP_REST_MINUTES = 1.0  # アップのセットの休憩
+# 実際の休憩時間で数えるとき（セットを追加した時刻の間）
+CALORIE_MAX_SET_MINUTES = 5.0  # 1セットぶんとして数える 上限（休憩＋動いている時間）。席を外した時間まで 数えないように
+CALORIE_BATCH_MINUTES = 0.5  # 前のセットから これより短いと「まとめて入力した」とみなして、決まった長さで数える
+CALORIE_LOG_MARGIN = timedelta(minutes=2)  # 筋トレの終了から この時間までに追加したセットは、時刻を信じる
 WARMUP_MAX_SETS = 5
 CALORIE_FACTOR = 1.05
 DEFAULT_METS = 5.0  # 新しい種目の 仮の強さ（ハビモンが取りこむときに AIで決め直す）

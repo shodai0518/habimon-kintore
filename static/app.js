@@ -855,6 +855,9 @@ function renderActive(w, ex) {
         w.kcal !== null ? `消費カロリー（今の時点の目安）：約${w.kcal}kcal（体重 ${w.kcal_weight}kg で計算）` : "体重を入れると、消費カロリーの目安が出るよ"
       }</p>
       <ul class="list">${groups}</ul>
+      <p class="hint">カロリーは、セットを追加した時刻の間（休憩＋動いている時間）で数えるよ。1セット終わるごとに「追加」を押すと正確になる。${
+        plannedEnd ? "あとから記録のときは、決まった長さ（ふつう1.5分・ビッグ3は2.5分）で数える。" : ""
+      }</p>
     </section>
     <section class="window">
       <form id="body-form" class="row">

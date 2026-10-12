@@ -147,16 +147,17 @@ def weight_for(session: Session, w: Workout) -> float | None:
 
 def calories_for(session: Session, w: Workout, rows: list[tuple[WorkoutSet, Exercise]]) -> dict:
     if w.minutes is not None:
-        minutes = w.minutes
+        minutes, end = w.minutes, w.ended_at
     else:  # 記録中：あとから記録なら 入れた終了時刻まで、今やっているなら 今まで
         end = w.planned_end or clock.now()
         minutes = min(config.WORKOUT_MAX_MINUTES, max(0, (end - w.started_at).total_seconds() / 60))
-    sets = [{"name": ex.name, "mets": ex.mets, "cardio": ex.part == "cardio",
+    sets = [{"name": ex.name, "mets": ex.mets, "cardio": ex.part == "cardio", "at": s.created_at,
              "duration_min": s.duration_min, "distance_km": s.distance_km} for s, ex in rows]
     warmups = json.loads(w.warmups) if w.warmups else {}
     names = {str(ex.id): ex.name for _, ex in rows}
     weight = weight_for(session, w)
-    result = calorie.workout_calories(minutes, sets, weight, {names[k]: n for k, n in warmups.items() if k in names})
+    result = calorie.workout_calories(minutes, sets, weight, {names[k]: n for k, n in warmups.items() if k in names},
+                                      started_at=w.started_at, ended_at=end)  # 実際の休憩時間で数える
     return {**result, "weight_used": weight}
 
 
