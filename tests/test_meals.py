@@ -185,3 +185,14 @@ def test_menu_favorites_come_first(client):
     client.put(f"/api/menu/{a['id']}/favorite", json={"favorite": False})
     assert [m["name"] for m in client.get("/api/meals").json()["menu"]] == ["唐揚げ定食", "オイコス"]
     assert client.put("/api/menu/999/favorite", json={"favorite": True}).status_code == 404
+
+
+def test_todays_meals_are_newest_first(client, monkeypatch):
+    from app import clock
+
+    for hour, name in ((9, "朝ごはん"), (12, "昼ごはん"), (19, "夜ごはん")):
+        monkeypatch.setattr(clock, "now", lambda hour=hour: NOW.replace(hour=hour))
+        client.post("/api/meals", json={"items": [{**RICE, "name": name}]})
+    assert [m["title"] for m in client.get("/api/meals").json()["meals"]] == ["夜ごはん", "昼ごはん", "朝ごはん"]
+    # ハビットモンスターへ渡すときは 今までどおり 古い順
+    assert [m["title"] for m in client.get("/api/sync/meals").json()["meals"]] == ["朝ごはん", "昼ごはん", "夜ごはん"]

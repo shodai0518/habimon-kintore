@@ -544,7 +544,7 @@ def read_meals(session: Session = Depends(get_session)):
         by_day.setdefault(meal.day, []).append(meal)
     return {
         "today": today,
-        "meals": [meal_view(m) for m in by_day.get(today, [])],
+        "meals": [meal_view(m) for m in reversed(by_day.get(today, []))],  # 新しいものが上
         "totals": day_totals(by_day.get(today, [])),
         "energy": energy_today(session, day_totals(by_day.get(today, []))["kcal"]),
         "targets": nutrition_targets(latest_weight(session)),
