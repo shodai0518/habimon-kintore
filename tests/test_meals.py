@@ -57,7 +57,7 @@ def test_targets_from_body_weight(client):
 def test_limits_and_validation(client, ai, monkeypatch):
     assert client.post("/api/meals/analyze", json={"images": [], "note": ""}).status_code == 400
     assert client.post("/api/meals/analyze", json={"images": ["http://example.com/a.jpg"]}).status_code == 400
-    assert client.post("/api/meals/analyze", json={"images": [PHOTO] * 3}).status_code == 422  # 写真は2枚まで
+    assert client.post("/api/meals/analyze", json={"images": [PHOTO] * 5}).status_code == 422  # 写真は4枚まで
     big = "data:image/jpeg;base64," + "A" * (config.FOOD_IMAGE_MAX_BYTES * 2)
     assert client.post("/api/meals/analyze", json={"images": [big]}).status_code == 400
     assert ai == []  # ここまで AIは 1回も呼ばれていない
@@ -164,3 +164,10 @@ def test_bmr_from_profile_when_no_body_fat(client):
     assert bmr["value"] == round(expected) and "国立" in bmr["formula"]
     assert client.put("/api/sync/profile", json={"birth_date": "なし"}).status_code == 400
     assert client.put("/api/sync/profile", json={"sex": "x"}).status_code == 422
+
+
+def test_four_photos_are_all_sent_to_ai(client, ai):
+    """いくつかの商品の成分表示などを、4枚まで 1回で送れる。"""
+    photos = ["data:image/jpeg;base64," + c * 400 for c in "ABCD"]
+    assert client.post("/api/meals/analyze", json={"images": photos}).status_code == 200
+    assert ai[-1]["images"] == photos and client.get("/api/meals").json()["max_images"] == 4

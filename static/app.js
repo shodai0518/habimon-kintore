@@ -351,11 +351,23 @@ function mealAddSection(data) {
   return `<section class="window">
     <h2>食事を記録する</h2>
     <form id="meal-form">
-      <label class="photo-pick">
-        <input type="file" id="meal-photos" accept="image/*" multiple hidden>
-        <span class="button-like">${mealPhotos.length ? `写真 ${mealPhotos.length}枚（選び直す）` : "写真を撮る・選ぶ"}</span>
+      <label class="photo-pick ${mealPhotos.length >= data.max_images ? "full" : ""}">
+        <input type="file" id="meal-photos" accept="image/*" multiple hidden ${mealPhotos.length >= data.max_images ? "disabled" : ""}>
+        <span class="button-like">${
+          mealPhotos.length === 0
+            ? "写真を撮る・選ぶ"
+            : mealPhotos.length >= data.max_images
+              ? `写真は ${data.max_images}枚まで`
+              : `写真を追加する（今 ${mealPhotos.length}枚／${data.max_images}枚まで）`
+        }</span>
       </label>
-      ${mealPhotos.length ? `<div class="photo-row">${mealPhotos.map((p) => `<img src="${p}" alt="">`).join("")}</div>` : ""}
+      ${
+        mealPhotos.length
+          ? `<div class="photo-row">${mealPhotos
+              .map((p, i) => `<span class="photo-thumb"><img src="${p}" alt="写真${i + 1}"><button type="button" data-photo-remove="${i}" aria-label="この写真を消す">×</button></span>`)
+              .join("")}</div>`
+          : ""
+      }
       <textarea id="meal-note" rows="2" maxlength="300" placeholder="ひとこと（なくてもOK）例：ご飯大盛り／すき家の牛丼並盛／半分残した">${esc(mealNote)}</textarea>
       <div class="row" style="margin-top:8px">
         <button id="meal-analyze" class="grow" ${data.ai.available && left > 0 ? "" : "disabled"}>AIに見積もってもらう</button>
@@ -364,7 +376,7 @@ function mealAddSection(data) {
     </form>
     <p class="hint">${
       data.ai.available
-        ? `写真は ${data.max_images}枚まで（真上と斜め）。箸やスプーンも写すと、量が分かりやすい。パッケージの栄養成分表示を撮ると、数字をそのまま読むよ。写真なしで文字だけでもOK。<br>AIは 今日あと${left}回。写真は保存しないよ。`
+        ? `写真は ${data.max_images}枚まで。1枚ずつ撮って足していけるよ。<br>・料理：真上と斜めから撮ると、量が分かりやすい（箸やスプーンも写す）<br>・商品：栄養成分表示を撮ると、数字をそのまま読む。いくつか食べたときは、それぞれの成分表示を撮ってOK<br>・写真なしで文字だけでもOK<br>AIは 今日あと${left}回。写真は保存しないよ。`
         : "AIがまだ設定されていないので、数字を自分で入れてね。"
     }</p>
   </section>`;
@@ -592,8 +604,18 @@ function renderMeals(data) {
     note.addEventListener("input", () => (mealNote = note.value));
     document.getElementById("meal-photos").addEventListener("change", (e) =>
       run(async () => {
-        const files = [...e.target.files].slice(0, data.max_images);
-        mealPhotos = await Promise.all(files.map(shrinkPhoto));
+        // 前に選んだ写真に 足していく（iPhone のカメラは 1回に1枚しか撮れないので）
+        const room = data.max_images - mealPhotos.length;
+        const files = [...e.target.files];
+        const added = await Promise.all(files.slice(0, room).map(shrinkPhoto));
+        mealPhotos = [...mealPhotos, ...added];
+        renderMeals(data);
+        if (files.length > room) await showMessages([`写真は ${data.max_images}枚までだよ。`]);
+      }),
+    );
+    view.querySelectorAll("[data-photo-remove]").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        mealPhotos.splice(Number(btn.dataset.photoRemove), 1);
         renderMeals(data);
       }),
     );

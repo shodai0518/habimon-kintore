@@ -140,8 +140,11 @@ body.resting #app { padding-bottom: calc(130px + env(safe-area-inset-bottom)); }
 .meal-total small { flex: 1; font-size: 0.8rem; margin: 0; }
 .photo-pick { display: block; }
 .button-like { display: block; text-align: center; border: 2px solid var(--fg); border-radius: 6px; padding: 10px 12px; cursor: pointer; }
-.photo-row { display: flex; gap: 8px; margin-top: 8px; }
-.photo-row img { width: 96px; height: 96px; object-fit: cover; border: 2px solid var(--fg); border-radius: 6px; }
+.photo-row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.photo-thumb { position: relative; display: inline-block; }
+.photo-thumb img { display: block; width: 72px; height: 72px; object-fit: cover; border: 2px solid var(--fg); border-radius: 6px; }
+.photo-thumb button { position: absolute; top: -8px; right: -8px; width: 26px; height: 26px; padding: 0; border-radius: 50%; line-height: 1; background: var(--bg); }
+.photo-pick.full .button-like { opacity: 0.4; cursor: default; }
 #meal-note { width: 100%; margin-top: 8px; resize: vertical; line-height: 1.5; }
 .draft-item { display: flex; flex-direction: column; gap: 6px; padding: 10px 0; border-bottom: 1px dashed #444; }
 .draft-numbers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }

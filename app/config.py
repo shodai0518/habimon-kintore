@@ -67,7 +67,7 @@ REST_MAX_SECONDS = 600
 
 # ---- 食事の記録 ----
 FOOD_AI_DAILY_LIMIT = 30  # 1日に AIに見積もってもらえる回数（使いすぎを防ぐ）
-FOOD_MAX_IMAGES = 2  # 1回に送れる写真の数（真上と斜め など）
+FOOD_MAX_IMAGES = 4  # 1回に送れる写真の数（真上と斜め、いくつかの商品の成分表示 など）
 FOOD_IMAGE_MAX_BYTES = 1_500_000  # 写真1枚の大きさの上限（画面側で 小さくしてから送る）
 FOOD_MAX_QUESTIONS = 2  # AIが聞き返せる 質問の数
 FOOD_MAX_ITEMS = 15  # 1回の食事の 品目の数
