@@ -1,4 +1,6 @@
-"""消費カロリーの計算（目安）。ハビットモンスターと 同じ計算。"""
+"""消費カロリーと基礎代謝の計算（目安）。ハビットモンスターと 同じ計算。"""
+
+from datetime import date
 
 from app import config
 
@@ -104,3 +106,23 @@ def workout_calories(total_minutes: float, sets: list[dict], weight: float | Non
             by_exercise[s["name"]] += kcal(mets, weight, warmup_minutes.pop(s["name"]) * scale)
     by_exercise = {name: round(value) for name, value in by_exercise.items()}
     return {"total": sum(by_exercise.values()), "by_exercise": by_exercise}
+
+
+def age_on(birth: date, day: date) -> int:
+    return day.year - birth.year - ((day.month, day.day) < (birth.month, birth.day))
+
+
+def bmr(weight: float | None, body_fat: float | None, height: float | None, birth: date | None,
+        sex: str | None, day: date) -> dict | None:
+    """基礎代謝(kcal/日)。体脂肪率があれば Katch-McArdle、なければ 国立健康・栄養研究所の式。"""
+    if not weight:
+        return None
+    if body_fat:
+        lean = weight * (1 - body_fat / 100)
+        return {"value": round(370 + 21.6 * lean), "formula": "Katch-McArdle（体脂肪率を使う）"}
+    if not (height and birth and sex):
+        return None
+    age = age_on(birth, day)
+    constants = {"male": [0.4235], "female": [0.9708], "other": [0.4235, 0.9708]}[sex]
+    values = [(0.0481 * weight + 0.0234 * height - 0.0138 * age - c) * 1000 / 4.186 for c in constants]
+    return {"value": round(sum(values) / len(values)), "formula": "国立健康・栄養研究所の式"}

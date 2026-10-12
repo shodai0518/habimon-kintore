@@ -86,3 +86,10 @@ class MenuItem(SQLModel, table=True):
     use_count: int = 0
     last_used: NaiveDatetime | None = None
     created_at: NaiveDatetime = Field(default_factory=datetime.now)
+
+
+class AppSetting(SQLModel, table=True):
+    """アプリの設定（プロフィールなど）。key ごとに 1つの値（JSON）"""
+
+    key: str = Field(primary_key=True)
+    value: str

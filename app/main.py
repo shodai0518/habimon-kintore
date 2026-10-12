@@ -17,7 +17,7 @@ from sqlmodel import Session, select
 
 from app import auth, calorie, clock, config, food_ai, rules
 from app.db import engine, get_session, init_db
-from app.models import AiUsage, Exercise, Meal, MenuItem, Workout, WorkoutSet
+from app.models import AiUsage, AppSetting, Exercise, Meal, MenuItem, Workout, WorkoutSet
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 PartKey = Literal["chest", "shoulders", "arms", "back", "abs", "legs", "cardio"]
@@ -264,6 +264,7 @@ def read_workouts(session: Session = Depends(get_session)):
         "last_fat": last_weight.body_fat if last_weight else None,
         "backfill_days": config.WORKOUT_BACKFILL_DAYS,
         "now": clock.now(),
+        "bmr": bmr_now(session),
     }
 
 
@@ -428,6 +429,49 @@ def latest_weight(session: Session) -> float | None:
     ).first()
 
 
+PROFILE_KEY = "profile"  # 身長・生年月日・性別（ハビットモンスターが 取りこみのついでに送ってくる）
+
+
+def get_profile(session: Session) -> dict | None:
+    setting = session.get(AppSetting, PROFILE_KEY)
+    return json.loads(setting.value) if setting else None
+
+
+def latest_body_fat(session: Session) -> float | None:
+    return session.exec(
+        select(Workout.body_fat).where(Workout.body_fat.is_not(None)).order_by(Workout.started_at.desc())
+    ).first()
+
+
+def bmr_now(session: Session) -> dict | None:
+    """今の基礎代謝（目安）。体重と、体脂肪率 か プロフィール（身長・生年月日・性別）から。"""
+    profile = get_profile(session) or {}
+    weight, body_fat = latest_weight(session), latest_body_fat(session)
+    result = calorie.bmr(
+        weight, body_fat, profile.get("height"),
+        datetime.fromisoformat(profile["birth_date"]).date() if profile.get("birth_date") else None,
+        profile.get("sex"), clock.today(),
+    )
+    return {**result, "weight": weight, "body_fat": body_fat} if result else None
+
+
+def workout_kcal_on(session: Session, day) -> int:
+    """その日に 筋トレで使ったカロリー（終わったものと 記録中のもの）。"""
+    total = 0
+    for w in session.exec(select(Workout).where(Workout.day == day)).all():
+        total += calories_for(session, w, rows_of(session, w.id))["total"] or 0
+    return total
+
+
+def energy_today(session: Session, eaten_kcal: int | None = None) -> dict:
+    """今日 使ったカロリー（基礎代謝 ＋ 筋トレ）と、食べたカロリーとの差。"""
+    bmr = bmr_now(session)
+    workout = workout_kcal_on(session, clock.today())
+    burned = bmr["value"] + workout if bmr else None
+    return {"bmr": bmr, "workout_kcal": workout, "burned": burned,
+            "balance": eaten_kcal - burned if burned is not None and eaten_kcal is not None else None}
+
+
 def nutrition_targets(weight: float | None) -> dict | None:
     """体重から決める 1日の目標。"""
     if not weight:
@@ -498,6 +542,7 @@ def read_meals(session: Session = Depends(get_session)):
         "today": today,
         "meals": [meal_view(m) for m in by_day.get(today, [])],
         "totals": day_totals(by_day.get(today, [])),
+        "energy": energy_today(session, day_totals(by_day.get(today, []))["kcal"]),
         "targets": nutrition_targets(latest_weight(session)),
         "history": [{"day": day, **day_totals(items)} for day, items in sorted(by_day.items(), reverse=True) if day != today],
         "ai": {"available": food_ai.available(), "used": ai_used_today(session), "limit": config.FOOD_AI_DAILY_LIMIT},
@@ -762,6 +807,30 @@ def sync_delete(workout_id: int, session: Session = Depends(get_session)):
     session.delete(w)
     session.commit()
     return {"deleted": True}
+
+
+class ProfileInput(BaseModel):
+    height: float | None = Field(default=None, gt=50, lt=260)
+    birth_date: str | None = None  # 例 2004-04-01
+    sex: Literal["male", "female", "other"] | None = None
+
+
+@sync.put("/profile")
+def sync_profile(body: ProfileInput, session: Session = Depends(get_session)):
+    """ハビットモンスターのプロフィール（身長・生年月日・性別）を 覚える。基礎代謝の計算に使う。"""
+    if body.birth_date:
+        try:
+            datetime.fromisoformat(body.birth_date)
+        except ValueError as err:
+            raise HTTPException(400, "生年月日の形がちがいます") from err
+    value = json.dumps(body.model_dump(), ensure_ascii=False)
+    setting = session.get(AppSetting, PROFILE_KEY)
+    if setting is None:
+        session.add(AppSetting(key=PROFILE_KEY, value=value))
+    else:
+        setting.value = value
+    session.commit()
+    return {"ok": True}
 
 
 class MetsInput(BaseModel):

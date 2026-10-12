@@ -139,3 +139,28 @@ def test_menu_from_meal_and_duplicates(client):
     client.post(f"/api/menu/{menu['id']}/eat", json={})
     assert [m["name"] for m in client.get("/api/meals").json()["menu"]] == ["唐揚げ定食", "ご飯だけ"]
     assert other["use_count"] == 0
+
+
+# ---- 基礎代謝 ----
+def test_bmr_and_energy_balance(client):
+    assert client.get("/api/meals").json()["energy"] == {"bmr": None, "workout_kcal": 0, "burned": None, "balance": None}
+    # 体重と体脂肪率があれば Katch-McArdle：370 + 21.6 × (70 × 0.85)
+    w = client.post("/api/workouts/start", json={"body_weight": 70, "body_fat": 15}).json()
+    bmr = client.get("/api/workouts").json()["bmr"]
+    assert bmr["value"] == round(370 + 21.6 * 70 * 0.85) and "Katch" in bmr["formula"] and bmr["body_fat"] == 15
+    client.post("/api/meals", json={"items": [RICE, CHICKEN]})  # 584kcal
+    energy = client.get("/api/meals").json()["energy"]
+    assert energy["bmr"]["value"] == 1655 and energy["burned"] == 1655 + energy["workout_kcal"]
+    assert energy["balance"] == 584 - energy["burned"]
+    client.delete(f"/api/workouts/{w['id']}")
+
+
+def test_bmr_from_profile_when_no_body_fat(client):
+    client.post("/api/workouts/start", json={"body_weight": 70})
+    assert client.get("/api/workouts").json()["bmr"] is None  # 体脂肪率も プロフィールも ない
+    assert client.put("/api/sync/profile", json={"height": 175, "birth_date": "2000-10-01", "sex": "male"}).json()["ok"]
+    bmr = client.get("/api/workouts").json()["bmr"]
+    expected = (0.0481 * 70 + 0.0234 * 175 - 0.0138 * 26 - 0.4235) * 1000 / 4.186  # 2026-10-10 で 26歳
+    assert bmr["value"] == round(expected) and "国立" in bmr["formula"]
+    assert client.put("/api/sync/profile", json={"birth_date": "なし"}).status_code == 400
+    assert client.put("/api/sync/profile", json={"sex": "x"}).status_code == 422

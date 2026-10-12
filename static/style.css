@@ -161,3 +161,7 @@ body.resting #app { padding-bottom: calc(130px + env(safe-area-inset-bottom)); }
 .menu-actions [data-menu-eat] { flex: 1; }
 .menu-register { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .menu-register input[type="checkbox"] { width: 20px; height: 20px; flex: none; }
+
+/* 基礎代謝・使ったカロリー */
+.meal-totals.energy { margin-bottom: 10px; padding-bottom: 6px; border-bottom: 2px solid #444; }
+.bmr-value { color: var(--fg); font-weight: normal; }

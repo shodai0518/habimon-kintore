@@ -321,9 +321,18 @@ function mealSummary(data) {
         ? targetLine("脂質", t.fat, "g", `目標 ${g.fat_min}〜${g.fat_max}g の中`, "ok")
         : targetLine("脂質", t.fat, "g", `目標 ${g.fat_min}〜${g.fat_max}g（あと${num1(g.fat_min - t.fat)}g で範囲）`, "hint")
     : targetLine("脂質", t.fat, "g", "", "hint");
+  const e = data.energy;
+  const energy = e.bmr
+    ? `<ul class="meal-totals energy">
+        <li class="meal-total"><span>基礎代謝</span><b>${e.bmr.value}kcal</b><small class="hint">何もしなくても使う分（目安）</small></li>
+        <li class="meal-total"><span>筋トレ</span><b>${e.workout_kcal}kcal</b><small class="hint">今日の筋トレで使った分</small></li>
+        <li class="meal-total"><span>使った合計</span><b>${e.burned}kcal</b><small class="hint">食べた分との差 ${e.balance > 0 ? "+" : ""}${e.balance}kcal</small></li>
+      </ul>`
+    : `<p class="hint">基礎代謝は、筋トレのときに体重と体脂肪率を記録すると出るよ（体脂肪率がないときは、ハビモンのプロフィールを使う）。</p>`;
   return `<section class="window">
     <h2>今日の食事（${dayLabel(data.today)}）</h2>
     <p class="meal-kcal">${t.kcal}<small> kcal</small></p>
+    ${energy}
     <ul class="meal-totals">
       ${protein}
       ${fat}
@@ -717,6 +726,13 @@ function renderStart(data) {
         <button class="primary" style="margin-top:10px">筋トレ開始！</button>
       </form>
       <p class="hint">体重は筋トレの前に測ったものを。体脂肪率は大まかな値でOK（なくてもOK）。</p>
+      ${
+        data.bmr
+          ? `<p class="hint">今の基礎代謝（目安）：<b class="bmr-value">${data.bmr.value}kcal</b>／日（体重 ${data.bmr.weight}kg${
+              data.bmr.body_fat ? `・体脂肪率 ${data.bmr.body_fat}%` : ""
+            } から計算）</p>`
+          : ""
+      }
     </section>
     <section class="window">
       <h2>あとから記録する</h2>
