@@ -428,9 +428,9 @@ function menuListHtml(data) {
   const others = data.menu.filter((m) => !m.favorite);
   const favoriteHtml = favorites.length
     ? `<ul class="list">${favorites.map((m) => menuItemHtml(m, options)).join("")}</ul>`
-    : '<p class="hint" style="margin-top:0">☆を押すと お気に入りになって、いつもここに出るよ。</p>';
+    : '<p class="hint" style="margin-top:0">「ほかのマイメニュー」を開いて ☆を押すと、お気に入りになって いつもここに出るよ。</p>';
   const otherHtml = others.length
-    ? `<details class="menu-others" ${menuOpen || !favorites.length ? "open" : ""}>
+    ? `<details class="menu-others" ${menuOpen ? "open" : ""}>
          <summary>ほかのマイメニュー（${others.length}）</summary>
          <ul class="list">${others.map((m) => menuItemHtml(m, options)).join("")}</ul>
        </details>`
