@@ -369,6 +369,24 @@ async function shrinkPhoto(file) {
   }
 }
 
+// 写真を 右に90度回す（真上から撮ると、スマホが向きを まちがえることがあるので）
+async function rotatePhoto(dataUrl) {
+  const img = await new Promise((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error("写真を回せなかった"));
+    el.src = dataUrl;
+  });
+  const canvas = document.createElement("canvas");
+  canvas.width = img.naturalHeight;
+  canvas.height = img.naturalWidth;
+  const ctx = canvas.getContext("2d");
+  ctx.translate(canvas.width, 0);
+  ctx.rotate(Math.PI / 2);
+  ctx.drawImage(img, 0, 0);
+  return canvas.toDataURL("image/jpeg", 0.9);
+}
+
 const num1 = (v) => Math.round(Number(v) * 10) / 10;
 const sumOf = (items, key) => num1(items.reduce((total, i) => total + (Number(i[key]) || 0), 0));
 
@@ -434,7 +452,7 @@ function mealAddSection(data) {
       ${
         mealPhotos.length
           ? `<div class="photo-row">${mealPhotos
-              .map((p, i) => `<span class="photo-thumb"><img src="${p}" alt="写真${i + 1}"><button type="button" data-photo-remove="${i}" aria-label="この写真を消す">×</button></span>`)
+              .map((p, i) => `<span class="photo-thumb"><img src="${p}" alt="写真${i + 1}"><button type="button" data-photo-remove="${i}" aria-label="この写真を消す">×</button><button type="button" class="photo-rotate" data-photo-rotate="${i}" aria-label="この写真を右に回す"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-3-6.2"/><path d="M20 3v5h-5"/></svg></button></span>`)
               .join("")}</div>`
           : ""
       }
@@ -777,6 +795,15 @@ function renderMeals(data) {
         renderMeals(data);
         if (files.length > room) await showMessages([`写真は ${data.max_images}枚までだよ。`]);
       }),
+    );
+    view.querySelectorAll("[data-photo-rotate]").forEach((btn) =>
+      btn.addEventListener("click", () =>
+        run(async () => {
+          const i = Number(btn.dataset.photoRotate);
+          mealPhotos[i] = await rotatePhoto(mealPhotos[i]);
+          renderMeals(data);
+        }),
+      ),
     );
     view.querySelectorAll("[data-photo-remove]").forEach((btn) =>
       btn.addEventListener("click", () => {
