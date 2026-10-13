@@ -263,6 +263,7 @@ def read_partner(session: Session = Depends(get_session)):
         return {"partner": None}
     return {"partner": {
         "name": partner["name"], "rank": partner["rank"], "level": partner["level"],
+        "motion": partner.get("motion", "hop"),
         # 画像が変わると 番号も変わるので、ずっと覚えておいてもらって大丈夫
         "image_url": f"/api/partner/image?v={partner['version']}" if partner.get("image") else None,
     }}
@@ -886,6 +887,7 @@ class PartnerInput(BaseModel):
     name: str = Field(min_length=1, max_length=20)
     rank: str = Field(min_length=1, max_length=2)
     level: int = Field(ge=1, le=999)
+    motion: Literal["hop", "squish", "float", "spin", "sway", "shiver", "egg"] = "hop"  # なでたときの動き
     image: str | None = Field(default=None, max_length=800_000)  # WebP を base64 にした文字
 
 

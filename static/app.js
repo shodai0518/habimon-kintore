@@ -274,7 +274,7 @@ function showPartner() {
   document.querySelector(".status-window").classList.toggle("with-partner", !!partner);
   if (!partner) return;
   partnerBtn.innerHTML = `
-    ${partner.image_url ? `<img src="${partner.image_url}" alt="">` : ""}
+    ${partner.image_url ? `<img class="${partner.motion === "egg" ? "egg" : ""}" src="${partner.image_url}" alt="">` : ""}
     <span class="partner-text"><span class="name">${esc(partner.name)}</span><small>ランク${esc(partner.rank)} Lv${partner.level}</small></span>`;
 }
 
@@ -296,16 +296,39 @@ function hidePartner() {
   showPartner();
 }
 
+// 大きく見る。絵を押すと なでられる（動いて ハートが出るだけ。機嫌は ハビットモンスターで なでたときに上がる）
 partnerBtn.addEventListener("click", () => {
   if (!partner?.image_url) return;
   const back = document.createElement("div");
   back.className = "zoom-back";
   back.innerHTML = `<div class="window zoom-box">
-    <img src="${partner.image_url}" alt="">
+    <button type="button" class="small zoom-close" aria-label="閉じる">×</button>
+    <div class="pet-field"><img class="pet-target ${partner.motion === "egg" ? "egg" : ""}" src="${partner.image_url}" alt="${esc(partner.name)}をなでる"></div>
     <p><span class="name">${esc(partner.name)}</span>　ランク${esc(partner.rank)} Lv${partner.level}</p>
-    <p class="hint">押すと閉じるよ</p>
+    <p class="hint">タップで なでられるよ</p>
   </div>`;
-  back.addEventListener("click", () => back.remove());
+  back.addEventListener("click", (e) => {
+    if (e.target === back || e.target.closest(".zoom-close")) back.remove();
+  });
+  const img = back.querySelector(".pet-target");
+  const field = back.querySelector(".pet-field");
+  img.addEventListener("click", () => {
+    const cls = `pet-${partner.motion}`;
+    img.classList.remove(cls);
+    void img.offsetWidth; // 動きを 最初から やり直す
+    img.classList.add(cls);
+    for (let i = 0; i < 3; i++) {
+      const heart = document.createElement("span");
+      heart.className = "pet-heart";
+      heart.textContent = "♥";
+      heart.style.left = `${38 + i * 10 + Math.random() * 8}%`;
+      heart.style.animationDelay = `${i * 0.15}s`;
+      field.appendChild(heart);
+      setTimeout(() => heart.remove(), 1600);
+    }
+  });
+  // 動きが終わったら、いつもの動きに戻す
+  img.addEventListener("animationend", (e) => e.animationName.startsWith("pet-") && img.classList.remove(`pet-${partner.motion}`));
   document.body.appendChild(back);
 });
 

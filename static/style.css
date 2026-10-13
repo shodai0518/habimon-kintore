@@ -194,6 +194,34 @@ button.partner img { width: 42px; height: 42px; object-fit: contain; flex: none;
 .partner-text .name { overflow: hidden; text-overflow: ellipsis; }
 .partner-text small { color: var(--dim); flex: none; }
 .zoom-back { position: fixed; inset: 0; z-index: 40; background: rgba(0, 0, 0, 0.85); display: flex; align-items: center; justify-content: center; padding: 16px; }
-.zoom-box { width: 100%; max-width: 420px; text-align: center; }
-.zoom-box img { width: 100%; max-width: 340px; aspect-ratio: 1; object-fit: contain; }
+.zoom-box { position: relative; width: 100%; max-width: 420px; text-align: center; }
+.zoom-box img { width: 100%; max-width: 320px; aspect-ratio: 1; object-fit: contain; }
+.zoom-close { position: absolute; top: 8px; right: 8px; z-index: 1; }
 .zoom-box .name { color: var(--accent); }
+
+/* 相棒の動き（ハビットモンスターのホームと同じ。上の小さい絵は 控えめに） */
+button.partner img { animation: bob-small 1.2s steps(2) infinite; }
+button.partner img.egg { animation: wobble 2.4s steps(1) infinite; }
+.pet-field { position: relative; padding: 12px 0 4px; }
+.pet-target { cursor: pointer; animation: bob 1.2s steps(2) infinite; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.pet-target.egg { animation: wobble 2.4s steps(1) infinite; }
+@keyframes bob-small { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+@keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@keyframes wobble { 0%, 70%, 100% { transform: rotate(0); } 75% { transform: rotate(-6deg); } 85% { transform: rotate(6deg); } }
+/* なでたときの動き（モンスターごとに 1つ決まっている）と ハート */
+.pet-heart { position: absolute; bottom: 55%; color: #f472b6; font-size: 1.6rem; pointer-events: none; animation: heart-up 1.4s ease-out forwards; opacity: 0; }
+@keyframes heart-up { 0% { opacity: 0; transform: translateY(0) scale(0.6); } 20% { opacity: 1; } 100% { opacity: 0; transform: translateY(-70px) scale(1.1); } }
+.pet-target.pet-hop { animation: pet-hop 0.9s ease-out; }
+.pet-target.pet-squish { animation: pet-squish 0.9s ease-in-out; transform-origin: 50% 100%; }
+.pet-target.pet-float { animation: pet-float 1.2s ease-in-out; }
+.pet-target.pet-spin { animation: pet-spin 0.8s ease-in-out; }
+.pet-target.pet-sway, .pet-target.pet-egg { animation: pet-sway 1.2s ease-in-out; transform-origin: 50% 100%; }
+.pet-target.pet-shiver { animation: pet-shiver 0.8s linear; }
+@keyframes pet-hop { 0%, 100% { transform: translateY(0); } 20% { transform: translateY(-22px); } 40% { transform: translateY(0); } 60% { transform: translateY(-12px); } 80% { transform: translateY(0); } }
+@keyframes pet-squish { 0%, 100% { transform: scale(1, 1); } 25% { transform: scale(1.18, 0.8); } 50% { transform: scale(0.9, 1.12); } 75% { transform: scale(1.08, 0.94); } }
+@keyframes pet-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-16px); } }
+@keyframes pet-spin { 0% { transform: rotate(0); } 100% { transform: rotate(360deg); } }
+@keyframes pet-sway { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-9deg); } 75% { transform: rotate(9deg); } }
+@keyframes pet-shiver { 0%, 100% { transform: translateX(0); } 10%, 30%, 50%, 70%, 90% { transform: translateX(-3px); } 20%, 40%, 60%, 80% { transform: translateX(3px); } }
+/* 動きを減らす設定にしている人には 動かさない */
+@media (prefers-reduced-motion: reduce) { button.partner img, .pet-target { animation: none; } }
