@@ -6,6 +6,7 @@ const messageText = document.getElementById("message-text");
 
 let part = "chest"; // 選んでいる部位
 let exerciseId = null; // 選んでいる種目
+let exerciseChanged = false; // 種目を 自分で変えた直後か（休憩タイマーを片づけるかの判断に使う）
 let timer = null;
 
 const esc = (s) =>
@@ -95,6 +96,111 @@ async function keepAwake(on) {
   }
 }
 
+// ---- ロック画面への通知（画面を閉じていても、休憩が終わったら知らせる）----
+// スマホの画面を閉じると このアプリは止まるので、サーバーに「この時刻に知らせて」と頼んでおく
+const push = { available: false, publicKey: null, on: false, loaded: false };
+const pushSupported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+
+async function currentSubscription() {
+  const reg = await navigator.serviceWorker.getRegistration("/");
+  return reg ? reg.pushManager.getSubscription() : null;
+}
+
+// 公開鍵（base64url）を、登録に使う形にする
+function keyBytes(text) {
+  const base = (text + "=".repeat((4 - (text.length % 4)) % 4)).replace(/-/g, "+").replace(/_/g, "/");
+  return Uint8Array.from(atob(base), (c) => c.charCodeAt(0));
+}
+
+async function loadPush() {
+  if (push.loaded) return;
+  push.loaded = true;
+  try {
+    const info = await api("/push");
+    push.available = info.available;
+    push.publicKey = info.public_key;
+    if (push.available && pushSupported() && Notification.permission === "granted") {
+      const sub = await currentSubscription();
+      push.on = !!sub;
+      if (sub) api("/push/subscribe", { method: "POST", body: sub.toJSON() }).catch(() => {}); // サーバーが忘れていても 思い出せるように
+    }
+  } catch {
+    push.loaded = false;
+  }
+  drawPushLine();
+}
+
+async function turnPushOn() {
+  if (!pushSupported()) throw new Error("この開き方では 通知が使えないよ。ホーム画面に追加したアプリから開いてね。");
+  if ((await Notification.requestPermission()) !== "granted") {
+    throw new Error("通知が許可されていないよ。iPhoneの「設定 → 通知 → 筋トレ」で 許可してね。");
+  }
+  const reg = await navigator.serviceWorker.register("/sw.js");
+  await navigator.serviceWorker.ready;
+  const sub = (await reg.pushManager.getSubscription()) ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(push.publicKey) }));
+  await api("/push/subscribe", { method: "POST", body: sub.toJSON() });
+  push.on = true;
+}
+
+async function turnPushOff() {
+  const sub = await currentSubscription();
+  if (sub) {
+    await api("/push/unsubscribe", { method: "POST", body: { endpoint: sub.endpoint } });
+    await sub.unsubscribe();
+  }
+  push.on = false;
+}
+
+function pushLineHtml() {
+  if (!push.available) return "";
+  if (!pushSupported()) return "休憩おわりの通知：ホーム画面に追加したアプリから開くと、ロック画面に通知を出せるよ。";
+  return push.on
+    ? `休憩おわりの通知：<b class="ok">オン</b>　<button type="button" class="small" data-push="test">テスト</button> <button type="button" class="small" data-push="off">オフにする</button>`
+    : `休憩おわりの通知：オフ　<button type="button" class="small" data-push="on">ロック画面に通知する</button>`;
+}
+
+// 始める前の画面の「通知」の行を 描く（まだ読みこみ中なら 空のまま）
+function drawPushLine() {
+  const line = document.getElementById("push-line");
+  if (!line) return;
+  line.innerHTML = pushLineHtml();
+  line.hidden = !line.innerHTML;
+  line.querySelectorAll("[data-push]").forEach((btn) =>
+    btn.addEventListener("click", () =>
+      run(async () => {
+        btn.disabled = true;
+        try {
+          if (btn.dataset.push === "on") {
+            await turnPushOn();
+            await showMessages(["通知をオンにした！", "休憩が終わったら、画面を閉じていても 通知が届くよ。"]);
+          } else if (btn.dataset.push === "off") {
+            await turnPushOff();
+          } else {
+            const res = await api("/push/test", { method: "POST" });
+            await showMessages([`${res.seconds}秒後に 通知を送るよ。`, "今のうちに 画面をロックして 待ってみてね。"]);
+          }
+        } finally {
+          btn.disabled = false;
+          drawPushLine();
+        }
+      }),
+    ),
+  );
+}
+
+// 休憩が終わる時刻に 通知を出してもらうように 頼む（長さを変えたら 頼み直す）
+function bookRestNotice() {
+  if (!push.on || !rest) return;
+  const seconds = (rest.endAt - Date.now()) / 1000;
+  if (seconds <= 0) return cancelRestNotice();
+  api("/rest/notify", { method: "POST", body: { seconds, name: rest.name } }).catch(() => {});
+}
+
+function cancelRestNotice() {
+  if (!push.on) return;
+  api("/rest/notify", { method: "DELETE" }).catch(() => {});
+}
+
 const formatRest = (seconds) => `${Math.floor(seconds / 60)}:${pad(seconds % 60)}`;
 
 function drawRest() {
@@ -106,6 +212,7 @@ function drawRest() {
   if (over && !rest.rung) {
     rest.rung = true;
     saveRest();
+    if (document.visibilityState === "visible") cancelRestNotice(); // 画面を見ているので、ロック画面への通知は いらない
     beep();
     restBar.classList.add("flash");
     setTimeout(() => restBar.classList.remove("flash"), 2400);
@@ -141,9 +248,11 @@ function startRest(exercise, limits) {
   };
   saveRest();
   showRest();
+  bookRestNotice();
 }
 
 function stopRest() {
+  if (rest) cancelRestNotice();
   rest = null;
   saveRest();
   clearInterval(restTicker);
@@ -166,6 +275,7 @@ function adjustRest(delta) {
   if (rest.endAt > Date.now()) rest.rung = false; // のばして まだ時間が残っていれば、また知らせる
   saveRest();
   showRest();
+  bookRestNotice();
   api(`/exercises/${rest.exerciseId}/rest`, { method: "PUT", body: { seconds } }).catch(() => {});
 }
 
@@ -919,6 +1029,7 @@ function renderStart(data) {
         <button class="primary" style="margin-top:10px">筋トレ開始！</button>
       </form>
       <p class="hint">体重は筋トレの前に測ったものを。体脂肪率は大まかな値でOK（なくてもOK）。</p>
+      <p class="hint push-line" id="push-line" hidden></p>
       ${
         data.bmr
           ? `<p class="hint">今の基礎代謝（目安）：<b class="bmr-value">${data.bmr.value}kcal</b>／日（体重 ${data.bmr.weight}kg${
@@ -939,6 +1050,7 @@ function renderStart(data) {
     </section>
     ${historySection(data.history)}`;
 
+  drawPushLine();
   const body = (form) => {
     const f = new FormData(form);
     return { body_weight: f.get("weight") ? Number(f.get("weight")) : null, body_fat: f.get("fat") ? Number(f.get("fat")) : null };
@@ -997,6 +1109,13 @@ function historySection(history) {
 function renderActive(w, ex) {
   const exercises = ex.exercises.filter((e) => e.part === part);
   if (!exercises.some((e) => e.id === exerciseId)) exerciseId = exercises[0]?.id ?? null;
+  // 種目を変えたとき：今日まだ1セットもやっていない種目なら、休憩タイマーを片づける
+  // （準備やアップの間に 鳴らないように。1セット目で また始まる）。
+  // もうセットをやった種目に戻るとき（スーパーセットなど）は、タイマーを そのままにする
+  if (exerciseChanged) {
+    exerciseChanged = false;
+    if (rest && rest.exerciseId !== exerciseId && !w.exercises.some((g) => g.exercise_id === exerciseId)) stopRest();
+  }
   const selected = ex.exercises.find((e) => e.id === exerciseId);
   // 入力の初期値：今日の最後のセット → 前回の最後のセット
   const todayGroup = w.exercises.find((g) => g.exercise_id === exerciseId);
@@ -1110,13 +1229,13 @@ function renderActive(w, ex) {
     btn.addEventListener("click", () => {
       part = btn.dataset.part;
       exerciseId = null;
-      stopRest(); // 種目を変えたら 休憩タイマーは片づける（準備やアップの間に 鳴らないように）。次の種目の1セット目で また始まる
+      exerciseChanged = true;
       renderActive(w, ex);
     }),
   );
   view.querySelector('select[name="exercise"]').addEventListener("change", (e) => {
     exerciseId = Number(e.target.value);
-    if (rest && rest.exerciseId !== exerciseId) stopRest(); // 種目を変えたら 休憩タイマーは片づける
+    exerciseChanged = true;
     renderActive(w, ex);
   });
   document.getElementById("new-exercise").addEventListener("click", () => {
@@ -1131,7 +1250,7 @@ function renderActive(w, ex) {
     run(async () => {
       const created = await api("/exercises", { method: "POST", body: { name, part } });
       exerciseId = created.id;
-      stopRest(); // 種目を変えたので 休憩タイマーは片づける
+      exerciseChanged = true;
       await render();
     });
   });
@@ -1215,6 +1334,7 @@ async function render() {
     logoutBtn.hidden = false;
     tabsEl.hidden = false;
     loadPartner();
+    loadPush();
     if (!data.current) {
       if (rest) stopRest(); // 筋トレが終わっていたら タイマーも片づける
       return renderStart(data);

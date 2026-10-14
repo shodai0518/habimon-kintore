@@ -18,5 +18,9 @@ services:
         sync: false   # スマホで開くときの合言葉
       - key: SYNC_TOKEN
         sync: false   # ハビモンが取りに来るときの合言葉
+      - key: VAPID_PUBLIC_KEY
+        sync: false   # ロック画面への通知の鍵（scripts/make_vapid_keys.py で作る。なくても動く）
+      - key: VAPID_PRIVATE_KEY
+        sync: false
       - key: SECRET_KEY
         generateValue: true

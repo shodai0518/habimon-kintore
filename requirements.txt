@@ -3,4 +3,5 @@ uvicorn[standard]>=0.30
 sqlmodel>=0.0.22
 psycopg[binary]>=3.2
 tzdata>=2024.1  # 時間帯のデータ（Windows には入っていないので 必要）
+pywebpush>=2.0  # ロック画面への通知（Web Push）
 openai>=3.19  # 食事の写真から 栄養を見積もる

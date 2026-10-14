@@ -51,6 +51,7 @@ cd kintore_app
 | `SECRET_KEY` | ログインの印にサインする鍵（長い でたらめな文字。render.yaml を使えば自動で作られる） |
 | `APP_TIMEZONE` | `Asia/Tokyo`（サーバーが外国にあっても 日本時間で記録する） |
 | `OPENAI_API_KEY` | OpenAI のキー（食事の見積もりに使う。なくても 筋トレの記録はできる） |
+| `VAPID_PUBLIC_KEY`・`VAPID_PRIVATE_KEY` | 休憩おわりを ロック画面に通知するための鍵（`scripts/make_vapid_keys.py` で作る。なくても動く） |
 | `OPENAI_MODEL` | 使うモデル（入れなければ `gpt-6-luna`） |
 | `PYTHON_VERSION` | `3.13.5` |
 

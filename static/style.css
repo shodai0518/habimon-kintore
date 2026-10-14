@@ -226,3 +226,4 @@ button.partner img.egg { animation: wobble 2.4s steps(1) infinite; }
 /* 動きを減らす設定にしている人には 動かさない */
 @media (prefers-reduced-motion: reduce) { button.partner img, .pet-target { animation: none; } }
 .photo-thumb button.photo-rotate { top: auto; bottom: -8px; display: flex; align-items: center; justify-content: center; }
+.push-line button { margin-left: 4px; }

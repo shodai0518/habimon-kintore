@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
-from app import auth, calorie, clock, config, food_ai, rules
+from app import auth, calorie, clock, config, food_ai, push, rules
 from app.db import engine, get_session, init_db
 from app.models import AiUsage, AppSetting, Exercise, Meal, MenuItem, Workout, WorkoutSet
 
@@ -248,6 +248,74 @@ def create_exercise(body: ExerciseInput, session: Session = Depends(get_session)
     session.commit()
     session.refresh(ex)
     return exercise_view(session, ex)
+
+
+class PushKeys(BaseModel):
+    p256dh: str = Field(min_length=10, max_length=200)
+    auth: str = Field(min_length=10, max_length=100)
+
+
+class PushSubscriptionInput(BaseModel):
+    endpoint: str = Field(min_length=10, max_length=1000)
+    keys: PushKeys
+
+
+class PushEndpointInput(BaseModel):
+    endpoint: str = Field(min_length=10, max_length=1000)
+
+
+class RestNotifyInput(BaseModel):
+    seconds: float = Field(ge=0, le=3600)  # 休憩が終わるまでの秒数
+    name: str = Field(default="", max_length=60)  # 種目の名前
+
+
+@api.get("/push")
+def read_push(session: Session = Depends(get_session)):
+    """ロック画面への通知が使えるか（サーバーに鍵が入っているか）と、登録に使う公開鍵。"""
+    return {"available": push.configured(), "public_key": push.public_key() if push.configured() else None,
+            "count": len(push.subscriptions(session))}
+
+
+@api.post("/push/subscribe")
+def push_subscribe(body: PushSubscriptionInput, session: Session = Depends(get_session)):
+    """このスマホを 通知の送り先として覚える。"""
+    if not push.configured():
+        raise HTTPException(503, "通知の設定が まだできていません")
+    if not push.allowed_endpoint(body.endpoint):
+        raise HTTPException(400, "この送り先には 通知を送れません")
+    push.add(session, body.model_dump())
+    return {"ok": True}
+
+
+@api.post("/push/unsubscribe")
+def push_unsubscribe(body: PushEndpointInput, session: Session = Depends(get_session)):
+    push.remove(session, body.endpoint)
+    return {"ok": True}
+
+
+@api.post("/push/test")
+def push_test(session: Session = Depends(get_session)):
+    """5秒後に ためしの通知を送る（その間に 画面をロックして たしかめる）。"""
+    if not push.configured() or not push.subscriptions(session):
+        raise HTTPException(400, "通知が まだオンになっていません")
+    push.schedule(5 - push.GRACE_SECONDS, {"title": "ハビモン筋トレ", "body": "通知のテストだよ。届いているね！", "tag": "test"})
+    return {"ok": True, "seconds": 5}
+
+
+@api.post("/rest/notify")
+def rest_notify(body: RestNotifyInput, session: Session = Depends(get_session)):
+    """休憩が終わる時刻に 通知を送るように 予約する（前の予約は 置きかえる）。"""
+    if not push.configured() or not push.subscriptions(session):
+        return {"scheduled": False}
+    text = f"{body.name}：次のセットへ！" if body.name else "次のセットへ！"
+    push.schedule(body.seconds, {"title": "休憩おわり", "body": text, "tag": "rest"})
+    return {"scheduled": True}
+
+
+@api.delete("/rest/notify")
+def rest_notify_cancel():
+    """休憩をやめた・アプリが自分で知らせた → 予約を取り消す。"""
+    return {"cancelled": push.cancel()}
 
 
 def get_partner(session: Session) -> dict | None:

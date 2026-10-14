@@ -4,3 +4,5 @@ __pycache__/
 data/
 tests/_data/
 .env
+# 通知の鍵（秘密）
+vapid_keys.txt

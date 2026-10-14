@@ -177,6 +177,22 @@ curl -X POST http://localhost:8000/api/workouts/push-history
 
 ---
 
+## 9. 休憩おわりを ロック画面に通知する
+
+休憩が終わったら、画面を閉じていても iPhone に通知が届くようにする。
+
+1. 鍵を作る（1回だけ）：`kintore_app` のフォルダで `python scripts/make_vapid_keys.py` を実行すると、`vapid_keys.txt` ができる
+2. Render の画面 → **habimon-kintore** → **Environment** → **Add Environment Variable** で、2つ足す
+   - Key：`VAPID_PUBLIC_KEY`　Value：`vapid_keys.txt` の1行目の `=` より右側
+   - Key：`VAPID_PRIVATE_KEY`　Value：2行目の `=` より右側（人に見せない）
+3. **Save Changes** を押す（アプリが自動で入れ替わる。1〜2分）
+4. iPhone で、**ホーム画面に追加したアプリ**を開く → 筋トレを始める前の画面の「ロック画面に通知する」を押す → 「許可」
+5. 「テスト」を押して、すぐ画面をロックする。5秒後に通知が届けば OK
+
+- 通知が届くのは、ホーム画面に追加したアプリだけ（Safari のタブでは使えない。iOS 16.4 以上）
+- マナーモードや集中モードのときは、iPhone の設定どおり 音が鳴らない
+- 鍵を作り直すと、今の登録は使えなくなる（もう一度「ロック画面に通知する」を押す）
+
 ## 使い方（毎回）
 
 1. ジムで、スマホの筋トレアプリを開く（しばらく使っていないと、最初だけ 30秒〜1分かかる）
@@ -196,6 +212,8 @@ curl -X POST http://localhost:8000/api/workouts/push-history
 | ハビモンで「合言葉がちがうみたい」と出る | `.env` の `WORKOUT_APP_TOKEN` と、Render の `SYNC_TOKEN` が同じ文字か |
 | ハビモンで「つながらなかった」と出る | 筋トレアプリが休んでいるだけのことが多い。1分待って「取りこむ」をもう一度押す |
 | 食事で「AIがまだ設定されていません」と出る | Render の `OPENAI_API_KEY` が入っているか（手順8） |
+| 休憩おわりの通知の行が 出ない | Render の `VAPID_PUBLIC_KEY`・`VAPID_PRIVATE_KEY` が入っているか（手順9） |
+| 通知が届かない | ホーム画面のアプリから開いているか。iPhone の「設定 → 通知 → 筋トレ」が許可になっているか。集中モードになっていないか |
 | 食事で「AIにつながらなかった」と出る | OpenAI の残高や上限を確かめる。少し待ってもう一度 |
 | 記録が消えた気がする | Neon の画面でプロジェクトが止まっていないか（無料プランは、長く使わないと止まることがある） |
 
