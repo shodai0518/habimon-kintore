@@ -1110,11 +1110,13 @@ function renderActive(w, ex) {
     btn.addEventListener("click", () => {
       part = btn.dataset.part;
       exerciseId = null;
+      stopRest(); // 種目を変えたら 休憩タイマーは片づける（準備やアップの間に 鳴らないように）。次の種目の1セット目で また始まる
       renderActive(w, ex);
     }),
   );
   view.querySelector('select[name="exercise"]').addEventListener("change", (e) => {
     exerciseId = Number(e.target.value);
+    if (rest && rest.exerciseId !== exerciseId) stopRest(); // 種目を変えたら 休憩タイマーは片づける
     renderActive(w, ex);
   });
   document.getElementById("new-exercise").addEventListener("click", () => {
@@ -1129,6 +1131,7 @@ function renderActive(w, ex) {
     run(async () => {
       const created = await api("/exercises", { method: "POST", body: { name, part } });
       exerciseId = created.id;
+      stopRest(); // 種目を変えたので 休憩タイマーは片づける
       await render();
     });
   });
