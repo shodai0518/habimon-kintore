@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>プライバシーポリシー</title>
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <style>
+    :root { --bg: #ffffff; --fg: #1f2328; --dim: #59636e; --line: #d1d9e0; --accent: #8a6d00; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #0d1117; --fg: #e6edf3; --dim: #9198a1; --line: #3d444d; --accent: #e3b341; } }
+    body { margin: 0; background: var(--bg); color: var(--fg); font-family: system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", sans-serif; line-height: 1.8; }
+    main { max-width: 720px; margin: 0 auto; padding: 32px 16px 64px; }
+    h1 { font-size: 1.6rem; margin: 0 0 4px; }
+    h2 { font-size: 1.1rem; margin: 32px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--line); }
+    .lead { color: var(--dim); margin: 0 0 24px; }
+    ul { padding-left: 1.4em; }
+    a { color: var(--accent); }
+    .en { color: var(--dim); font-size: 0.92rem; }
+    footer { margin-top: 48px; color: var(--dim); font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>プライバシーポリシー</h1>
+  <p class="lead">ハビットモンスター（個人用の習慣トラッカー）　最終更新：2026年10月14日</p>
+
+  <h2>1. 取得する情報</h2>
+  <p>利用者が Google アカウントで許可したときだけ、次の情報を読み込みます。</p>
+  <ul>
+    <li>Google カレンダーの予定（タイトル・日時・色。読み取りのみ）</li>
+    <li>Google ToDo リストの ToDo（タイトル・期限・完了したか）</li>
+  </ul>
+
+  <h2>2. 使い方</h2>
+  <ul>
+    <li>予定と ToDo を、アプリの「やること」として表示するためだけに使います。</li>
+    <li>アプリでやることを完了にしたとき、その ToDo を Google ToDo リストでも完了にします。カレンダーの予定は書きかえません。</li>
+    <li>やることのタイトルから、難しさ（もらえる経験値）を判定するために、タイトルの文字だけを OpenAI の API に送ることがあります。OpenAI の API に送ったデータは、OpenAI のモデルの学習には使われません。</li>
+  </ul>
+
+  <h2>3. 保存と共有</h2>
+  <ul>
+    <li>読み込んだ内容と、Google のログイン情報（アクセス用の鍵）は、利用者自身のパソコンの中だけに保存します。作者のサーバーには送りません。</li>
+    <li>第三者に販売・提供したり、広告に使ったりすることはありません。</li>
+    <li>Google から受け取った情報の扱いは、<a href="https://developers.google.com/terms/api-services-user-data-policy">Google API サービスのユーザーデータに関するポリシー</a>（限定的な使用の要件を含む）に従います。</li>
+  </ul>
+
+  <h2>4. 削除のしかた</h2>
+  <ul>
+    <li><a href="https://myaccount.google.com/permissions">Google アカウントの「サードパーティ製のアプリとサービス」</a>から、このアプリへのアクセスをいつでも取り消せます。</li>
+    <li>パソコンの中のログイン情報（secrets フォルダ）とセーブデータを消すと、読み込んだ内容も消えます。</li>
+  </ul>
+
+  <h2>5. 変更</h2>
+  <p>このポリシーを変えるときは、このページを更新します。</p>
+
+  <h2>6. 連絡先</h2>
+  <p>このアプリは、作者が自分のために作った個人用のアプリです。お問い合わせは、Google の同意画面に表示される デベロッパーの連絡先へお願いします。</p>
+
+  <h2 class="en">Privacy Policy (English summary)</h2>
+  <p class="en">Habit Monster reads Google Calendar events (read-only) and Google Tasks only after the user grants access, and uses them only to show the user's to-dos in the app.
+    When the user completes a to-do in the app, the matching task is marked complete in Google Tasks. Calendar events are never modified.
+    Task titles may be sent to the OpenAI API to judge their difficulty; data sent to the OpenAI API is not used to train OpenAI models.
+    All data and the Google access token are stored only on the user's own computer, never on the developer's server, and are never sold, shared, or used for advertising.
+    Use of information received from Google APIs adheres to the Google API Services User Data Policy, including the Limited Use requirements.
+    Access can be revoked at any time from the Google Account "Third-party apps &amp; services" page.</p>
+
+  <footer>
+    <a href="/about.html">ハビットモンスターについて / About</a>
+  </footer>
+</main>
+</body>
+</html>
