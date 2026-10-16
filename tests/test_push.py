@@ -39,6 +39,7 @@ def test_subscribe_and_book_rest_notice(client, keys, booked):
 
     assert client.post("/api/rest/notify", json={"seconds": 90, "name": "ベンチプレス"}).json() == {"scheduled": True}
     seconds, payload = booked[0]
+    # 相棒がまだ届いていないときは ふつうの文
     assert seconds == 90 and payload == {"title": "休憩おわり", "body": "ベンチプレス：次のセットへ！", "tag": "rest"}
     assert client.post("/api/push/test").json()["seconds"] == 5 and booked[1][1]["tag"] == "test"
 
@@ -121,3 +122,30 @@ def test_generated_keys_work_with_the_push_library():
     assert len(raw) == 65 and raw[0] == 4  # スマホに渡す形（圧縮していない点）
     headers = Vapid.from_string(private).sign({"sub": "https://habimon-kintore.onrender.com", "aud": "https://web.push.apple.com"})
     assert headers["Authorization"].startswith("vapid t=") and public in headers["Authorization"]
+
+
+
+def test_notice_is_spoken_by_partner(client, keys, booked):
+    """相棒が届いていれば、相棒の名前で 話しかける。"""
+    client.post("/api/push/subscribe", json=SUB)
+    client.put("/api/sync/partner", json={"name": "キノバット", "rank": "E", "level": 6, "motion": "sway"})
+    client.post("/api/rest/notify", json={"seconds": 120, "name": "ベンチプレス"})
+    payload = booked[-1][1]
+    assert payload["title"] == "キノバット" and payload["tag"] == "rest"
+    assert payload["body"] in [line.format(ex="ベンチプレス") for line in push.PARTNER_LINES["rest"]]
+
+    client.post("/api/push/test")
+    assert booked[-1][1]["title"] == "キノバット" and booked[-1][1]["tag"] == "test"
+
+    client.put("/api/sync/partner", json={"name": "卵", "rank": "D", "level": 1, "motion": "egg"})
+    client.post("/api/rest/notify", json={"seconds": 60, "name": "スクワット"})
+    assert booked[-1][1] == {"title": "卵", "body": "卵がゆれている…休憩おわりの合図みたい！（スクワット）", "tag": "rest"}
+
+
+def test_lines_without_exercise_name():
+    import random
+
+    partner = {"name": "キノバット", "motion": "hop"}
+    for seed in range(20):
+        body = push.partner_message(partner, "rest", "", rng=random.Random(seed))["body"]
+        assert "{ex}" not in body and "筋トレ" not in body

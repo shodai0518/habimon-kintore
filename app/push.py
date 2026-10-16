@@ -11,6 +11,7 @@ iPhone は、ホーム画面に追加したアプリで「通知を許可」し�
 import json
 import logging
 import os
+import random
 import threading
 from urllib.parse import urlparse
 
@@ -28,6 +29,37 @@ PUSH_HOSTS = (".push.apple.com", "fcm.googleapis.com", ".push.services.mozilla.c
 
 _timer: threading.Timer | None = None
 _lock = threading.Lock()
+
+
+# 相棒のことば（{ex} は種目の名前）。卵のときは しゃべらない
+PARTNER_LINES = {
+    "rest": [
+        "休憩おわり！{ex}、次のセットいこう！",
+        "そろそろ次のセットだよ！{ex}、がんばって！",
+        "時間だよ！{ex}の次のセット、見てるからね！",
+        "休憩おしまい！もうひとふんばり！",
+        "よし、次いこう！{ex}、いっしょにがんばろう！",
+    ],
+    "test": ["通知のテストだよ。ちゃんと届いてる？"],
+}
+EGG_LINES = {
+    "rest": "卵がゆれている…休憩おわりの合図みたい！（{ex}）",
+    "test": "卵がころころゆれた。通知は ちゃんと届いているみたい！",
+}
+
+
+def partner_message(partner: dict | None, kind: str, exercise: str = "", rng=random) -> dict:
+    """通知の中身（title・body）。相棒の名前で、相棒が話しかける形にする。相棒がまだ届いていなければ ふつうの文。"""
+    ex = exercise or "筋トレ"
+    if partner is None:
+        return {"title": "休憩おわり" if kind == "rest" else "ハビモン筋トレ",
+                "body": f"{ex}：次のセットへ！" if kind == "rest" else "通知のテストだよ。届いているね！"}
+    if partner.get("motion") == "egg":
+        return {"title": "卵", "body": EGG_LINES[kind].format(ex=ex)}
+    lines = PARTNER_LINES[kind]
+    if not exercise:  # 種目が分からないときは、種目の名前が入らない文だけ
+        lines = [line for line in lines if "{ex}" not in line] or lines
+    return {"title": partner["name"], "body": rng.choice(lines).format(ex=ex)}
 
 
 def public_key() -> str | None:

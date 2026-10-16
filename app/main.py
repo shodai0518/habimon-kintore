@@ -298,17 +298,16 @@ def push_test(session: Session = Depends(get_session)):
     """5秒後に ためしの通知を送る（その間に 画面をロックして たしかめる）。"""
     if not push.configured() or not push.subscriptions(session):
         raise HTTPException(400, "通知が まだオンになっていません")
-    push.schedule(5 - push.GRACE_SECONDS, {"title": "ハビモン筋トレ", "body": "通知のテストだよ。届いているね！", "tag": "test"})
+    push.schedule(5 - push.GRACE_SECONDS, {**push.partner_message(get_partner(session), "test"), "tag": "test"})
     return {"ok": True, "seconds": 5}
 
 
 @api.post("/rest/notify")
 def rest_notify(body: RestNotifyInput, session: Session = Depends(get_session)):
-    """休憩が終わる時刻に 通知を送るように 予約する（前の予約は 置きかえる）。"""
+    """休憩が終わる時刻に 通知を送るように 予約する（前の予約は 置きかえる）。相棒が話しかける形にする。"""
     if not push.configured() or not push.subscriptions(session):
         return {"scheduled": False}
-    text = f"{body.name}：次のセットへ！" if body.name else "次のセットへ！"
-    push.schedule(body.seconds, {"title": "休憩おわり", "body": text, "tag": "rest"})
+    push.schedule(body.seconds, {**push.partner_message(get_partner(session), "rest", body.name), "tag": "rest"})
     return {"scheduled": True}
 
 
