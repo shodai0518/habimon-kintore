@@ -479,7 +479,7 @@ async function shrinkPhoto(file) {
   }
 }
 
-// 写真を 右に90度回す（真上から撮ると、スマホが向きを まちがえることがあるので）
+// 写真を 左に90度回す（真上から撮ると、スマホが向きを まちがえることがあるので）
 async function rotatePhoto(dataUrl) {
   const img = await new Promise((resolve, reject) => {
     const el = new Image();
@@ -491,8 +491,8 @@ async function rotatePhoto(dataUrl) {
   canvas.width = img.naturalHeight;
   canvas.height = img.naturalWidth;
   const ctx = canvas.getContext("2d");
-  ctx.translate(canvas.width, 0);
-  ctx.rotate(Math.PI / 2);
+  ctx.translate(0, canvas.height);
+  ctx.rotate(-Math.PI / 2);
   ctx.drawImage(img, 0, 0);
   return canvas.toDataURL("image/jpeg", 0.9);
 }
@@ -562,7 +562,7 @@ function mealAddSection(data) {
       ${
         mealPhotos.length
           ? `<div class="photo-row">${mealPhotos
-              .map((p, i) => `<span class="photo-thumb"><img src="${p}" alt="写真${i + 1}"><button type="button" data-photo-remove="${i}" aria-label="この写真を消す">×</button><button type="button" class="photo-rotate" data-photo-rotate="${i}" aria-label="この写真を右に回す"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-3-6.2"/><path d="M20 3v5h-5"/></svg></button></span>`)
+              .map((p, i) => `<span class="photo-thumb"><img src="${p}" alt="写真${i + 1}"><button type="button" data-photo-remove="${i}" aria-label="この写真を消す">×</button><button type="button" class="photo-rotate" data-photo-rotate="${i}" aria-label="この写真を左に回す"><svg style="transform: scaleX(-1)" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-3-6.2"/><path d="M20 3v5h-5"/></svg></button></span>`)
               .join("")}</div>`
           : ""
       }
@@ -583,6 +583,7 @@ function mealAddSection(data) {
 // マイメニュー：よく食べるものを 選ぶだけで記録する（AIは使わない）
 let mealListOpen = false; // 「今日 食べたもの」を開いているか（記録した直後は 開く。画面を開き直すと たたまれる）
 let menuQuery = ""; // マイメニューの検索に入れた文字
+let mealAi = { available: false }; // AIが使えるか（品目の計算に使う）
 let menuOpen = false; // 「ほかのマイメニュー」を開いているか
 
 // ひらがな・カタカナ、全角・半角、大文字・小文字の ちがいを気にせずに 探せるようにする
@@ -709,6 +710,7 @@ function draftSection() {
           <button type="button" class="small danger" data-remove="${i}" aria-label="消す">×</button>
         </div>
         <input data-field="amount" maxlength="40" value="${esc(item.amount)}" placeholder="量（例：茶碗1杯・150g）" style="width:100%">
+        <small class="hint draft-status" data-status="${i}">${item.status ?? ""}</small>
         <div class="draft-numbers">
           <label><span>kcal</span><input type="number" data-field="kcal" step="1" min="0" inputmode="decimal" value="${item.kcal}"></label>
           <label><span>たんぱく</span><input type="number" data-field="protein" step="0.1" min="0" inputmode="decimal" value="${item.protein}"></label>
@@ -733,6 +735,7 @@ function draftSection() {
     ${questions}
     <div id="draft-items">${rows}</div>
     <button type="button" id="draft-add" class="small" style="margin-top:8px">＋品目を足す</button>
+    <p class="hint">名前や量を変えると、数字も自動で直るよ（量が「200g → 300g」のように数字なら その割合で、ちがうときは AIで計算）。</p>
     <p class="draft-total" id="draft-total"></p>
     ${
       d.menuId
@@ -795,6 +798,82 @@ function readDraft() {
   });
 }
 
+// ---- 品目の名前や量を変えたら、数字も直す ----
+// basis：今の数字が どの量の分か（量を変えたときに、ここから 割合で直す）
+const UNIT_RE = /(\d+(?:\.\d+)?)\s*(kg|g|ml|mL|l|L|個|本|枚|杯|切れ|切|袋|玉|皿|パック|缶|貫|粒|尾|切れ)/g;
+
+function amountParts(text) {
+  const toBase = (n, unit) => (unit === "kg" || unit.toLowerCase() === "l" ? n * 1000 : n);
+  const unitKey = (unit) => (unit === "kg" ? "g" : unit.toLowerCase() === "l" || unit.toLowerCase() === "ml" ? "ml" : unit === "切" ? "切れ" : unit);
+  return [...String(text).normalize("NFKC").matchAll(UNIT_RE)].map((m) => ({ value: toBase(Number(m[1]), m[2]), unit: unitKey(m[2]) }));
+}
+
+// 量の文字から 割合を出す（重さ・量 → 数（個・杯など）の順に 同じ単位で比べる）。比べられなければ null
+function amountRatio(before, after) {
+  const a = amountParts(before);
+  const b = amountParts(after);
+  for (const units of [["g", "ml"], null]) {
+    for (const x of a) {
+      if (units && !units.includes(x.unit)) continue;
+      const y = b.find((p) => p.unit === x.unit);
+      if (y && x.value > 0 && y.value > 0) return y.value / x.value;
+    }
+  }
+  return null;
+}
+
+const NUMBER_FIELDS = ["kcal", "protein", "fat", "carbs"];
+const snapshot = (item) => ({ amount: item.amount, ...Object.fromEntries(NUMBER_FIELDS.map((k) => [k, Number(item[k]) || 0])) });
+let draftPending = 0; // AIで計算している途中の 品目の数
+
+function drawDraftRow(i) {
+  const item = mealDraft.items[i];
+  const row = document.querySelector(`.draft-item[data-index="${i}"]`);
+  if (!row) return;
+  NUMBER_FIELDS.forEach((k) => (row.querySelector(`[data-field="${k}"]`).value = item[k]));
+  row.querySelector('[data-field="amount"]').value = item.amount;
+  row.querySelector(`[data-status="${i}"]`).textContent = item.status ?? "";
+  const save = document.getElementById("draft-save");
+  if (save) save.disabled = draftPending > 0;
+  drawDraftTotal();
+}
+
+async function recalcItem(i, field) {
+  const item = mealDraft.items[i];
+  if (!item.name.trim()) return;
+  // 量だけ変えて、前と同じ単位の数字があれば 割合で直す（AIを使わない）
+  if (field === "amount" && item.basis) {
+    const ratio = amountRatio(item.basis.amount, item.amount);
+    if (ratio) {
+      const round1 = (v) => Math.round(v * 10) / 10;
+      NUMBER_FIELDS.forEach((k) => (item[k] = k === "kcal" ? Math.round(item.basis[k] * ratio) : round1(item.basis[k] * ratio)));
+      item.basis = snapshot(item);
+      item.status = `量に合わせて ×${Math.round(ratio * 100) / 100} にした`;
+      return drawDraftRow(i);
+    }
+  }
+  // それ以外（品目を足した・名前を変えた・量が数字で比べられない）は AIで この品目だけ 計算する
+  if (!mealAi.available) return;
+  const context = [mealNote, ...mealDraft.items.filter((x, j) => j !== i && x.name.trim()).map((x) => x.name)].join("、");
+  const asked = `${item.name}|${item.amount}`;
+  item.asked = asked;
+  item.status = "AIで計算中…";
+  draftPending++;
+  drawDraftRow(i);
+  try {
+    const res = await api("/meals/estimate-item", { method: "POST", body: { name: item.name, amount: item.amount, context } });
+    if (item.asked !== asked) return; // 計算している間に また変えた → 新しいほうを使う
+    Object.assign(item, { amount: res.amount, ...Object.fromEntries(NUMBER_FIELDS.map((k) => [k, res[k]])) });
+    item.basis = snapshot(item);
+    item.status = "AIで計算した";
+  } catch (err) {
+    if (item.asked === asked) item.status = `計算できなかった（${err.message}）`;
+  } finally {
+    draftPending--;
+    if (mealDraft?.items.includes(item)) drawDraftRow(mealDraft.items.indexOf(item));
+  }
+}
+
 function drawDraftTotal() {
   const el = document.getElementById("draft-total");
   if (!el) return;
@@ -826,11 +905,28 @@ function renderMeals(data) {
   view.innerHTML = `${mealSummary(data)}${mealDraft ? draftSection() : `${mealAddSection(data)}${menuSection(data)}`}${mealListSection(data)}`;
 
   if (mealDraft) {
+    mealAi = data.ai;
+    mealDraft.items.forEach((item) => (item.basis ??= snapshot(item)));
     drawDraftTotal();
+    document.getElementById("draft-save").disabled = draftPending > 0;
     const items = document.getElementById("draft-items");
-    items.addEventListener("input", () => {
+    items.addEventListener("input", (e) => {
       readDraft();
       drawDraftTotal();
+      // 数字を自分で直したら、それを「今の量の分」として覚える
+      const row = e.target.closest(".draft-item");
+      if (row && NUMBER_FIELDS.includes(e.target.dataset.field)) {
+        const item = mealDraft.items[Number(row.dataset.index)];
+        item.basis = snapshot(item);
+        item.status = "";
+      }
+    });
+    // 名前や量を 変え終わったら（入力欄を離れたら）、数字を直す
+    items.addEventListener("change", (e) => {
+      const field = e.target.dataset.field;
+      if (field !== "name" && field !== "amount") return;
+      readDraft();
+      recalcItem(Number(e.target.closest(".draft-item").dataset.index), field);
     });
     items.querySelectorAll("[data-remove]").forEach((btn) =>
       btn.addEventListener("click", () => {
@@ -864,7 +960,9 @@ function renderMeals(data) {
     document.getElementById("draft-save").addEventListener("click", (e) =>
       run(async () => {
         readDraft();
-        const items = mealDraft.items.filter((i) => i.name.trim());
+        const items = mealDraft.items
+          .filter((i) => i.name.trim())
+          .map((i) => ({ name: i.name, amount: i.amount, ...Object.fromEntries(NUMBER_FIELDS.map((k) => [k, i[k]])) }));
         if (!items.length) throw new Error("品目を1つ以上 入れてね");
         const menuName = (mealDraft.menuName ?? "").trim();
         if (mealDraft.menuId && !menuName) throw new Error("マイメニューの名前を入れてね");

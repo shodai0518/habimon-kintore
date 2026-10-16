@@ -196,3 +196,30 @@ def test_todays_meals_are_newest_first(client, monkeypatch):
     assert [m["title"] for m in client.get("/api/meals").json()["meals"]] == ["夜ごはん", "昼ごはん", "朝ごはん"]
     # ハビットモンスターへ渡すときは 今までどおり 古い順
     assert [m["title"] for m in client.get("/api/sync/meals").json()["meals"]] == ["朝ごはん", "昼ごはん", "夜ごはん"]
+
+
+
+def test_estimate_one_item(client, monkeypatch):
+    """品目を1つだけ AIで計算する（名前と量は 本人が書いたもの）。回数は 写真の見積もりとは別に数える。"""
+    calls = []
+
+    def fake(name, amount, context=""):
+        calls.append((name, amount, context))
+        return food_ai.FoodItem(name=name, amount=amount or "1杯・200g", kcal=350, protein=20, fat=10, carbs=40)
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test")
+    monkeypatch.setattr(food_ai, "estimate_item", fake)
+    res = client.post("/api/meals/estimate-item", json={"name": "豚汁", "amount": "", "context": "唐揚げ定食、ご飯"}).json()
+    assert res == {"name": "豚汁", "amount": "1杯・200g", "kcal": 350, "protein": 20, "fat": 10, "carbs": 40}
+    assert calls == [("豚汁", "", "唐揚げ定食、ご飯")]
+    assert client.get("/api/meals").json()["ai"]["used"] == 0  # 写真の見積もりの回数は 使わない
+
+    from app import config
+    monkeypatch.setattr(config, "FOOD_ITEM_AI_DAILY_LIMIT", 1)
+    assert client.post("/api/meals/estimate-item", json={"name": "味噌汁"}).status_code == 429
+    assert client.post("/api/meals/estimate-item", json={"name": ""}).status_code == 422
+
+
+def test_estimate_item_without_ai(client, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    assert client.post("/api/meals/estimate-item", json={"name": "豚汁"}).status_code == 503

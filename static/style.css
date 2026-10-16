@@ -227,3 +227,5 @@ button.partner img.egg { animation: wobble 2.4s steps(1) infinite; }
 @media (prefers-reduced-motion: reduce) { button.partner img, .pet-target { animation: none; } }
 .photo-thumb button.photo-rotate { top: auto; bottom: -8px; display: flex; align-items: center; justify-content: center; }
 .push-line button { margin-left: 4px; }
+.draft-status { display: block; min-height: 0; margin: 2px 0 0; }
+.draft-status:empty { display: none; }

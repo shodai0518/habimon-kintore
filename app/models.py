@@ -71,6 +71,7 @@ class AiUsage(SQLModel, table=True):
 
     day: date = Field(primary_key=True)
     count: int = 0
+    item_count: int = 0  # 品目を1つだけ 計算し直した回数
 
 
 class MenuItem(SQLModel, table=True):

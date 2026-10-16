@@ -687,6 +687,29 @@ def analyze_meal(body: AnalyzeInput, session: Session = Depends(get_session)):
     }
 
 
+class EstimateItemInput(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+    amount: str = Field(default="", max_length=40)
+    context: str = Field(default="", max_length=600)  # いっしょに食べたもの・ひとこと（ヒント）
+
+
+@api.post("/meals/estimate-item")
+def estimate_item(body: EstimateItemInput, session: Session = Depends(get_session)):
+    """品目を1つだけ AIに計算してもらう（品目を足したとき・名前や量を変えたとき）。"""
+    if not food_ai.available():
+        raise HTTPException(503, "AIがまだ設定されていません。数字を自分で入れてね")
+    usage = session.get(AiUsage, clock.today()) or AiUsage(day=clock.today(), count=0)
+    if usage.item_count >= config.FOOD_ITEM_AI_DAILY_LIMIT:
+        raise HTTPException(429, f"今日は もう{config.FOOD_ITEM_AI_DAILY_LIMIT}回 計算しました。数字を自分で入れてね")
+    usage.item_count += 1  # 失敗しても 数える
+    session.add(usage)
+    session.commit()
+    item = food_ai.estimate_item(body.name, body.amount, body.context)
+    if item is None:
+        raise HTTPException(502, "AIにつながらなかった。数字を自分で入れてね")
+    return item.model_dump()
+
+
 @api.post("/meals")
 def create_meal(body: MealInput, session: Session = Depends(get_session)):
     now = clock.now()
