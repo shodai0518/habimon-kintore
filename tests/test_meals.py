@@ -51,7 +51,7 @@ def test_targets_from_body_weight(client):
     w = client.post("/api/workouts/start", json={"body_weight": 70}).json()
     client.delete(f"/api/workouts/{w['id']}")
     w = client.post("/api/workouts/start", json={"body_weight": 70}).json()
-    assert client.get("/api/meals").json()["targets"] == {"weight": 70, "protein_min": 112, "fat_min": 42, "fat_max": 70}
+    assert client.get("/api/meals").json()["targets"] == {"weight": 70, "protein_per_kg": 2.0, "protein_min": 140, "fat_min": 42, "fat_max": 70}
 
 
 def test_limits_and_validation(client, ai, monkeypatch):

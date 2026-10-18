@@ -578,7 +578,7 @@ def nutrition_targets(weight: float | None) -> dict | None:
     """体重から決める 1日の目標。"""
     if not weight:
         return None
-    return {"weight": weight, "protein_min": round(weight * config.PROTEIN_PER_KG),
+    return {"weight": weight, "protein_per_kg": config.PROTEIN_PER_KG, "protein_min": round(weight * config.PROTEIN_PER_KG),
             "fat_min": round(weight * config.FAT_PER_KG_MIN), "fat_max": round(weight * config.FAT_PER_KG_MAX)}
 
 
