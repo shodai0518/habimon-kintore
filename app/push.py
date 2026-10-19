@@ -56,10 +56,12 @@ def partner_message(partner: dict | None, kind: str, exercise: str = "", rng=ran
                 "body": f"{ex}：次のセットへ！" if kind == "rest" else "通知のテストだよ。届いているね！"}
     if partner.get("motion") == "egg":
         return {"title": "卵", "body": EGG_LINES[kind].format(ex=ex)}
-    lines = PARTNER_LINES[kind]
+    # 休憩おわりは、キャラごとのセリフがあれば それを使う
+    own = [str(line)[:60] for line in (partner.get("lines") or []) if str(line).strip()]
+    lines = own if kind == "rest" and own else PARTNER_LINES[kind]
     if not exercise:  # 種目が分からないときは、種目の名前が入らない文だけ
         lines = [line for line in lines if "{ex}" not in line] or lines
-    return {"title": partner["name"], "body": rng.choice(lines).format(ex=ex)}
+    return {"title": partner["name"], "body": rng.choice(lines).replace("{ex}", ex)}
 
 
 def public_key() -> str | None:

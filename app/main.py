@@ -978,6 +978,7 @@ class PartnerInput(BaseModel):
     rank: str = Field(min_length=1, max_length=2)
     level: int = Field(ge=1, le=999)
     motion: Literal["hop", "squish", "float", "spin", "sway", "shiver", "egg"] = "hop"  # なでたときの動き
+    lines: list[str] | None = Field(default=None, max_length=8)  # 休憩おわりのセリフ（キャラごとに ハビモンが作る）
     image: str | None = Field(default=None, max_length=800_000)  # WebP を base64 にした文字
 
 

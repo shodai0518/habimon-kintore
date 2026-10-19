@@ -149,3 +149,16 @@ def test_lines_without_exercise_name():
     for seed in range(20):
         body = push.partner_message(partner, "rest", "", rng=random.Random(seed))["body"]
         assert "{ex}" not in body and "筋トレ" not in body
+
+
+
+def test_notice_uses_partner_own_lines(client, keys, booked):
+    """キャラごとのセリフが届いていれば、休憩おわりは それを使う。"""
+    client.post("/api/push/subscribe", json=SUB)
+    client.put("/api/sync/partner", json={"name": "チクタク", "rank": "C", "level": 22, "motion": "hop",
+                                          "lines": ["チクタク…{ex}の時間だ！"]})
+    client.post("/api/rest/notify", json={"seconds": 90, "name": "ベンチプレス"})
+    assert booked[-1][1] == {"title": "チクタク", "body": "チクタク…ベンチプレスの時間だ！", "tag": "rest"}
+    client.post("/api/push/test")  # テストは いつもの文
+    assert booked[-1][1]["body"] in push.PARTNER_LINES["test"]
+    assert client.put("/api/sync/partner", json={"name": "x", "rank": "E", "level": 1, "lines": ["a"] * 9}).status_code == 422
