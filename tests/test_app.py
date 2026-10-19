@@ -213,7 +213,7 @@ def test_add_missing_bool_column(tmp_path, monkeypatch):
         conn.execute(text("CREATE TABLE menuitem (id INTEGER PRIMARY KEY, name VARCHAR NOT NULL, kcal FLOAT NOT NULL, protein FLOAT NOT NULL, fat FLOAT NOT NULL, carbs FLOAT NOT NULL, items VARCHAR NOT NULL, use_count INTEGER NOT NULL, last_used DATETIME, created_at DATETIME NOT NULL)"))
         conn.execute(text("INSERT INTO menuitem VALUES (1, 'オイコス', 92, 12, 0, 5.4, '[]', 3, NULL, '2026-10-11 00:00:00')"))
     monkeypatch.setattr(db, "engine", engine)
-    assert db.add_missing_columns() == ["menuitem.favorite"]
+    assert "menuitem.favorite" in db.add_missing_columns()
     with engine.begin() as conn:
         assert conn.execute(text("SELECT name, use_count, favorite FROM menuitem")).one() == ("オイコス", 3, 0)
 

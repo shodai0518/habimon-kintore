@@ -582,15 +582,35 @@ def nutrition_targets(weight: float | None) -> dict | None:
             "fat_min": round(weight * config.FAT_PER_KG_MIN), "fat_max": round(weight * config.FAT_PER_KG_MAX)}
 
 
+def health_targets(session: Session) -> dict:
+    """食塩と食物繊維の目安（プロフィールの性別で決める。分からなければ 男性の値）。"""
+    sex = "female" if (get_profile(session) or {}).get("sex") == "female" else "male"
+    return {"salt_max": config.SALT_MAX[sex], "fiber_min": config.FIBER_MIN[sex]}
+
+
+def round_opt(value: float | None) -> float | None:
+    return None if value is None else round(value, 1)
+
+
+def sum_opt(rows, key: str) -> float | None:
+    """合計（どれにも数字がなければ None。食塩と食物繊維は、項目を作る前の記録に 数字がない）。"""
+    values = [v for v in ((r.get(key) if isinstance(r, dict) else getattr(r, key)) for r in rows) if v is not None]
+    return round(sum(values), 1) if values else None
+
+
 def meal_view(meal: Meal) -> dict:
     return {"id": meal.id, "day": meal.day, "eaten_at": meal.eaten_at, "title": meal.title, "kcal": round(meal.kcal),
             "protein": round(meal.protein, 1), "fat": round(meal.fat, 1), "carbs": round(meal.carbs, 1),
+            "salt": round_opt(meal.salt), "fiber": round_opt(meal.fiber),
             "items": json.loads(meal.items), "note": meal.note, "source": meal.source}
 
 
 def day_totals(meals: list[Meal]) -> dict:
     return {"kcal": round(sum(m.kcal for m in meals)), "protein": round(sum(m.protein for m in meals), 1),
             "fat": round(sum(m.fat for m in meals), 1), "carbs": round(sum(m.carbs for m in meals), 1),
+            "salt": sum_opt(meals, "salt"), "fiber": sum_opt(meals, "fiber"),
+            # 食塩・食物繊維の数字がない記録（項目を作る前のもの）がまざっているか
+            "partial": any(m.salt is None for m in meals) and any(m.salt is not None for m in meals),
             "count": len(meals)}
 
 
@@ -603,7 +623,8 @@ def menu_items(session: Session) -> list[MenuItem]:
 
 def menu_view(item: MenuItem) -> dict:
     return {"id": item.id, "name": item.name, "kcal": round(item.kcal), "protein": round(item.protein, 1),
-            "fat": round(item.fat, 1), "carbs": round(item.carbs, 1), "items": json.loads(item.items),
+            "fat": round(item.fat, 1), "carbs": round(item.carbs, 1),
+            "salt": round_opt(item.salt), "fiber": round_opt(item.fiber), "items": json.loads(item.items),
             "use_count": item.use_count, "favorite": item.favorite}
 
 
@@ -623,6 +644,7 @@ def save_menu(session: Session, name: str, items: list[dict], menu: MenuItem | N
     menu.items = json.dumps(items, ensure_ascii=False)
     menu.kcal, menu.protein = sum(i["kcal"] for i in items), sum(i["protein"] for i in items)
     menu.fat, menu.carbs = sum(i["fat"] for i in items), sum(i["carbs"] for i in items)
+    menu.salt, menu.fiber = sum_opt(items, "salt"), sum_opt(items, "fiber")
     session.add(menu)
     return menu
 
@@ -646,6 +668,7 @@ def read_meals(session: Session = Depends(get_session)):
         "totals": day_totals(by_day.get(today, [])),
         "energy": energy_today(session, day_totals(by_day.get(today, []))["kcal"]),
         "targets": nutrition_targets(latest_weight(session)),
+        "health": health_targets(session),
         "history": [{"day": day, **day_totals(items)} for day, items in sorted(by_day.items(), reverse=True) if day != today],
         "ai": {"available": food_ai.available(), "used": ai_used_today(session), "limit": config.FOOD_AI_DAILY_LIMIT},
         "max_images": config.FOOD_MAX_IMAGES,
@@ -721,6 +744,7 @@ def create_meal(body: MealInput, session: Session = Depends(get_session)):
         day=clock.game_day(eaten), eaten_at=eaten, title="、".join(i["name"] for i in items)[:80],
         kcal=sum(i["kcal"] for i in items), protein=sum(i["protein"] for i in items),
         fat=sum(i["fat"] for i in items), carbs=sum(i["carbs"] for i in items),
+        salt=sum_opt(items, "salt"), fiber=sum_opt(items, "fiber"),
         items=json.dumps(items, ensure_ascii=False), note=body.note.strip() or None, source=body.source, created_at=now,
     )
     session.add(meal)
@@ -792,13 +816,16 @@ def eat_menu(menu_id: int, body: EatInput, session: Session = Depends(get_sessio
         raise HTTPException(404, "そのマイメニューは見つかりません")
     now = clock.now()
     n = body.servings
+    scale = lambda v: None if v is None else round(v * n, 1)  # noqa: E731（食塩・食物繊維は 前の登録だと ない）
     items = [{**i, "kcal": round(i["kcal"] * n, 1), "protein": round(i["protein"] * n, 1), "fat": round(i["fat"] * n, 1),
-              "carbs": round(i["carbs"] * n, 1), "amount": f"{i.get('amount') or ''}×{n:g}".strip() if n != 1 else i.get("amount", "")}
+              "carbs": round(i["carbs"] * n, 1), "salt": scale(i.get("salt")), "fiber": scale(i.get("fiber")),
+              "amount": f"{i.get('amount') or ''}×{n:g}".strip() if n != 1 else i.get("amount", "")}
              for i in json.loads(menu.items)]
     title = menu.name if n == 1 else f"{menu.name}×{n:g}"
     meal = Meal(day=clock.game_day(now), eaten_at=now, title=title[:80], kcal=sum(i["kcal"] for i in items),
                 protein=sum(i["protein"] for i in items), fat=sum(i["fat"] for i in items),
-                carbs=sum(i["carbs"] for i in items), items=json.dumps(items, ensure_ascii=False), source="menu",
+                carbs=sum(i["carbs"] for i in items), salt=sum_opt(items, "salt"), fiber=sum_opt(items, "fiber"),
+                items=json.dumps(items, ensure_ascii=False), source="menu",
                 created_at=now)
     menu.use_count += 1
     menu.last_used = now

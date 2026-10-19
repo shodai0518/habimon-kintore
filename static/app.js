@@ -504,6 +504,20 @@ function targetLine(label, value, unit, text, state) {
   return `<li class="meal-total"><span>${label}</span><b>${value}${unit}</b><small class="${state}">${text}</small></li>`;
 }
 
+// 食塩（少なめがよい）と 食物繊維（多めがよい）を 1行で。ご褒美には 入れない（目安だけ）
+function healthLine(t, h) {
+  if (t.salt === null && t.fiber === null) return "";
+  const salt = t.salt === null ? "—" : `${t.salt}g`;
+  const fiber = t.fiber === null ? "—" : `${t.fiber}g`;
+  const saltState = t.salt !== null && t.salt >= h.salt_max ? "ng" : "ok";
+  const fiberState = t.fiber !== null && t.fiber >= h.fiber_min ? "ok" : "hint";
+  return `<li class="meal-total health-line">
+    <span>食塩・繊維</span>
+    <b><span class="${saltState}">${salt}</span>・<span class="${fiberState}">${fiber}</span></b>
+    <small class="hint">目安：食塩 ${h.salt_max}g 未満・食物繊維 ${h.fiber_min}g 以上${t.partial ? "（前の記録は入っていない）" : ""}</small>
+  </li>`;
+}
+
 function mealSummary(data) {
   const t = data.totals;
   const g = data.targets;
@@ -535,6 +549,7 @@ function mealSummary(data) {
       ${protein}
       ${fat}
       ${targetLine("炭水化物", t.carbs, "g", "", "hint")}
+      ${healthLine(t, data.health)}
     </ul>
     <p class="hint">${
       g
@@ -600,7 +615,7 @@ function menuItemHtml(m, options) {
     <div class="menu-head">
       <div class="menu-main">
         <b>${esc(m.name)}</b>
-        <small class="hint">${m.kcal}kcal・たんぱく質 ${m.protein}g・脂質 ${m.fat}g・炭水化物 ${m.carbs}g</small>
+        <small class="hint">${m.kcal}kcal・たんぱく質 ${m.protein}g・脂質 ${m.fat}g・炭水化物 ${m.carbs}g${m.salt !== null ? `・食塩 ${m.salt}g` : ""}</small>
       </div>
       <button class="small star ${m.favorite ? "on" : ""}" data-menu-favorite="${m.id}" aria-label="${m.favorite ? "お気に入りから外す" : "お気に入りにする"}">${m.favorite ? "★" : "☆"}</button>
     </div>
@@ -716,6 +731,8 @@ function draftSection() {
           <label><span>たんぱく</span><input type="number" data-field="protein" step="0.1" min="0" inputmode="decimal" value="${item.protein}"></label>
           <label><span>脂質</span><input type="number" data-field="fat" step="0.1" min="0" inputmode="decimal" value="${item.fat}"></label>
           <label><span>炭水化物</span><input type="number" data-field="carbs" step="0.1" min="0" inputmode="decimal" value="${item.carbs}"></label>
+          <label><span>食塩</span><input type="number" data-field="salt" step="0.1" min="0" inputmode="decimal" value="${item.salt ?? 0}"></label>
+          <label><span>食物繊維</span><input type="number" data-field="fiber" step="0.1" min="0" inputmode="decimal" value="${item.fiber ?? 0}"></label>
         </div>
       </div>`,
     )
@@ -764,7 +781,7 @@ function mealListSection(data) {
               </span>
             </div>
             <div>${esc(m.title)}</div>
-            <small class="hint">たんぱく質 ${m.protein}g・脂質 ${m.fat}g・炭水化物 ${m.carbs}g</small>
+            <small class="hint">たんぱく質 ${m.protein}g・脂質 ${m.fat}g・炭水化物 ${m.carbs}g${m.salt !== null ? `・食塩 ${m.salt}g・食物繊維 ${m.fiber}g` : ""}</small>
           </li>`,
         )
         .join("")
@@ -772,7 +789,7 @@ function mealListSection(data) {
   const history = data.history.length
     ? `<h2 style="margin-top:14px">これまで（最近2週間）</h2>
        <ul class="list">${data.history
-         .map((h) => `<li class="history-line"><span>${dayLabel(h.day)}</span><span>${h.kcal}kcal／たんぱく質 ${h.protein}g・脂質 ${h.fat}g</span></li>`)
+         .map((h) => `<li class="history-line"><span>${dayLabel(h.day)}</span><span>${h.kcal}kcal／たんぱく質 ${h.protein}g・脂質 ${h.fat}g${h.salt !== null ? `・食塩 ${h.salt}g` : ""}</span></li>`)
          .join("")}</ul>`
     : "";
   return `<section class="window">
@@ -822,7 +839,7 @@ function amountRatio(before, after) {
   return null;
 }
 
-const NUMBER_FIELDS = ["kcal", "protein", "fat", "carbs"];
+const NUMBER_FIELDS = ["kcal", "protein", "fat", "carbs", "salt", "fiber"];
 const snapshot = (item) => ({ amount: item.amount, ...Object.fromEntries(NUMBER_FIELDS.map((k) => [k, Number(item[k]) || 0])) });
 let draftPending = 0; // AIで計算している途中の 品目の数
 
@@ -878,7 +895,7 @@ function drawDraftTotal() {
   const el = document.getElementById("draft-total");
   if (!el) return;
   const items = mealDraft.items;
-  el.textContent = `合計：${Math.round(sumOf(items, "kcal"))}kcal／たんぱく質 ${sumOf(items, "protein")}g・脂質 ${sumOf(items, "fat")}g・炭水化物 ${sumOf(items, "carbs")}g`;
+  el.textContent = `合計：${Math.round(sumOf(items, "kcal"))}kcal／たんぱく質 ${sumOf(items, "protein")}g・脂質 ${sumOf(items, "fat")}g・炭水化物 ${sumOf(items, "carbs")}g・食塩 ${sumOf(items, "salt")}g・食物繊維 ${sumOf(items, "fiber")}g`;
 }
 
 async function analyzeMeal(button, answers) {
@@ -937,7 +954,7 @@ function renderMeals(data) {
     );
     document.getElementById("draft-add").addEventListener("click", () => {
       readDraft();
-      mealDraft.items.push({ name: "", amount: "", kcal: 0, protein: 0, fat: 0, carbs: 0 });
+      mealDraft.items.push({ name: "", amount: "", kcal: 0, protein: 0, fat: 0, carbs: 0, salt: 0, fiber: 0 });
       renderMeals(data);
     });
     document.getElementById("draft-menu-check")?.addEventListener("change", (e) => {
@@ -1028,7 +1045,7 @@ function renderMeals(data) {
       });
     });
     document.getElementById("meal-manual").addEventListener("click", () => {
-      mealDraft = { items: [{ name: mealNote.trim().slice(0, 40), amount: "", kcal: 0, protein: 0, fat: 0, carbs: 0 }], questions: [], comment: "", source: "manual" };
+      mealDraft = { items: [{ name: mealNote.trim().slice(0, 40), amount: "", kcal: 0, protein: 0, fat: 0, carbs: 0, salt: 0, fiber: 0 }], questions: [], comment: "", source: "manual" };
       renderMeals(data);
     });
   }

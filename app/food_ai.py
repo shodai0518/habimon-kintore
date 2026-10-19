@@ -23,6 +23,8 @@ class FoodItem(BaseModel):
     protein: float  # g
     fat: float  # g
     carbs: float  # g
+    salt: float  # 食塩相当量 g
+    fiber: float  # 食物繊維 g
 
 
 class FoodEstimate(BaseModel):
@@ -33,12 +35,13 @@ class FoodEstimate(BaseModel):
 
 
 INSTRUCTIONS = f"""あなたは食事の栄養を見積もる係です。写真や文章から、食べたものを品目ごとに分けて、それぞれの
-量・エネルギー(kcal)・たんぱく質(g)・脂質(g)・炭水化物(g) を見積もってください。日本の食事が中心です。
+量・エネルギー(kcal)・たんぱく質(g)・脂質(g)・炭水化物(g)・食塩相当量(g, salt)・食物繊維(g, fiber) を見積もってください。日本の食事が中心です。
 
 手順:
 1. まず 写っている（書かれている）品目を1つずつ挙げ、量を決める（例：ご飯 茶碗1杯・150g、唐揚げ 4個・120g）。
    箸・皿・手など 大きさの分かるものがあれば 量の手がかりにする。見えない油や調味料も考える。
-2. 品目ごとに kcal・たんぱく質・脂質・炭水化物を見積もる。合計は出さなくてよい（アプリが足す）。
+2. 品目ごとに kcal・たんぱく質・脂質・炭水化物・食塩相当量・食物繊維を見積もる。合計は出さなくてよい（アプリが足す）。
+   食塩相当量は 汁物・麺のスープ・漬物・調味料・加工肉を 忘れずに数える（ラーメンはスープを飲むかで大きく変わる）。
 3. 補足（本人が書いた ひとこと）や、質問への答えがあれば、写真より そちらを優先する。
 
 写真の向き:
@@ -52,6 +55,7 @@ INSTRUCTIONS = f"""あなたは食事の栄養を見積もる係です。写真�
 
 kind:
 - label：パッケージの「栄養成分表示」が写っているとき。書いてある数字をそのまま使う（見積もらない）。
+  ナトリウム(mg)しか書いていないときは、食塩相当量 = ナトリウム(mg) × 2.54 ÷ 1000 で直す。食物繊維が書いていなければ 見積もる。
   成分表示と 料理の写真が まざっているときは meal にして、成分表示のある品目だけ 書いてある数字を使う。
   「100gあたり」などの表示なら、内容量が分かれば 1個（1袋）ぶんに直し、分からなければ questions で聞く。
 - meal：料理や食品の写真、または文章だけのとき。
@@ -110,7 +114,7 @@ def estimate(images: list[str], note: str, answers: list[tuple[str, str]] | None
 
 
 ITEM_INSTRUCTIONS = """あなたは食事の栄養を見積もる係です。食べたもの 1品目について、
-エネルギー(kcal)・たんぱく質(g)・脂質(g)・炭水化物(g) を見積もってください。日本の食事が中心です。
+エネルギー(kcal)・たんぱく質(g)・脂質(g)・炭水化物(g)・食塩相当量(g)・食物繊維(g) を見積もってください。日本の食事が中心です。
 
 - 量（amount）が書いてあれば、その量で計算する。書いていなければ ふつうの1人前とし、amount にその量を書く。
 - name と amount は、本人が書いたものを そのまま返す（amount が空のときだけ 決めて書く）。
@@ -153,7 +157,7 @@ def clean_item(item: FoodItem) -> FoodItem:
 
     return FoodItem(name=item.name.strip()[:40] or "（名前なし）", amount=item.amount.strip()[:40],
                     kcal=limit(item.kcal, 5000), protein=limit(item.protein, 500), fat=limit(item.fat, 500),
-                    carbs=limit(item.carbs, 1000))
+                    carbs=limit(item.carbs, 1000), salt=limit(item.salt, 50), fiber=limit(item.fiber, 100))
 
 
 class ItemInput(BaseModel):
@@ -165,3 +169,5 @@ class ItemInput(BaseModel):
     protein: float = Field(ge=0, le=500)
     fat: float = Field(ge=0, le=500)
     carbs: float = Field(ge=0, le=1000)
+    salt: float = Field(default=0, ge=0, le=50)  # 食塩相当量
+    fiber: float = Field(default=0, ge=0, le=100)  # 食物繊維

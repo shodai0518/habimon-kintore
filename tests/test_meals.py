@@ -5,8 +5,8 @@ import pytest
 from app import config, food_ai
 from conftest import NOW
 
-RICE = {"name": "ご飯", "amount": "茶碗1杯・150g", "kcal": 234, "protein": 3.8, "fat": 0.5, "carbs": 55.7}
-CHICKEN = {"name": "唐揚げ", "amount": "4個・120g", "kcal": 350, "protein": 20, "fat": 22, "carbs": 15}
+RICE = {"name": "ご飯", "amount": "茶碗1杯・150g", "kcal": 234, "protein": 3.8, "fat": 0.5, "carbs": 55.7, "salt": 0, "fiber": 0.5}
+CHICKEN = {"name": "唐揚げ", "amount": "4個・120g", "kcal": 350, "protein": 20, "fat": 22, "carbs": 15, "salt": 1.5, "fiber": 0.3}
 PHOTO = "data:image/jpeg;base64," + "A" * 400
 
 
@@ -41,7 +41,8 @@ def test_analyze_then_save(client, ai):
     meal = client.post("/api/meals", json={"items": items, "note": "唐揚げ定食", "source": "photo"}).json()
     assert meal["kcal"] == 740 and meal["protein"] == 26.3 and meal["title"] == "ご飯、唐揚げ"
     data = client.get("/api/meals").json()
-    assert data["totals"] == {"kcal": 740, "protein": 26.3, "fat": 22.8, "carbs": 107.8, "count": 1}
+    assert data["totals"] == {"kcal": 740, "protein": 26.3, "fat": 22.8, "carbs": 107.8, "salt": 1.5, "fiber": 0.8,
+                              "partial": False, "count": 1}
     assert data["meals"][0]["items"][0]["amount"] == "大盛り・250g"
     assert "PHOTO" not in str(data) and "base64" not in str(data)  # 写真は 保存しない
 
@@ -90,7 +91,8 @@ def test_day_boundary_history_delete_and_sync(client):
     today = client.post("/api/meals", json={"items": [RICE]}).json()
     data = client.get("/api/meals").json()
     assert [m["id"] for m in data["meals"]] == [today["id"]]
-    assert data["history"] == [{"day": old["day"], "kcal": 350, "protein": 20.0, "fat": 22.0, "carbs": 15.0, "count": 1}]
+    assert data["history"] == [{"day": old["day"], "kcal": 350, "protein": 20.0, "fat": 22.0, "carbs": 15.0, "salt": 1.5, "fiber": 0.3,
+                                "partial": False, "count": 1}]
     synced = client.get(f"/api/sync/meals?since={old['day']}").json()["meals"]
     assert [m["id"] for m in synced] == [old["id"], today["id"]] and synced[0]["items"][0]["name"] == "唐揚げ"
     assert client.delete(f"/api/meals/{old['id']}").json()["ok"]
@@ -99,12 +101,12 @@ def test_day_boundary_history_delete_and_sync(client):
 
 
 def test_clean_item_limits_numbers():
-    item = food_ai.clean_item(food_ai.FoodItem(name="  ", amount="x", kcal=-5, protein=9999, fat=1.26, carbs=3))
+    item = food_ai.clean_item(food_ai.FoodItem(name="  ", amount="x", kcal=-5, protein=9999, fat=1.26, carbs=3, salt=99, fiber=-1))
     assert (item.name, item.kcal, item.protein, item.fat) == ("（名前なし）", 0.0, 500.0, 1.3)
 
 
 # ---- マイメニュー ----
-OIKOS = {"name": "オイコス プレーン砂糖不使用", "amount": "1個・113g", "kcal": 92, "protein": 12.0, "fat": 0, "carbs": 5.4}
+OIKOS = {"name": "オイコス プレーン砂糖不使用", "amount": "1個・113g", "kcal": 92, "protein": 12.0, "fat": 0, "carbs": 5.4, "salt": 0.1, "fiber": 0}
 
 
 def test_menu_register_eat_and_edit(client):
@@ -205,12 +207,12 @@ def test_estimate_one_item(client, monkeypatch):
 
     def fake(name, amount, context=""):
         calls.append((name, amount, context))
-        return food_ai.FoodItem(name=name, amount=amount or "1杯・200g", kcal=350, protein=20, fat=10, carbs=40)
+        return food_ai.FoodItem(name=name, amount=amount or "1杯・200g", kcal=350, protein=20, fat=10, carbs=40, salt=2.0, fiber=3.0)
 
     monkeypatch.setenv("OPENAI_API_KEY", "test")
     monkeypatch.setattr(food_ai, "estimate_item", fake)
     res = client.post("/api/meals/estimate-item", json={"name": "豚汁", "amount": "", "context": "唐揚げ定食、ご飯"}).json()
-    assert res == {"name": "豚汁", "amount": "1杯・200g", "kcal": 350, "protein": 20, "fat": 10, "carbs": 40}
+    assert res == {"name": "豚汁", "amount": "1杯・200g", "kcal": 350, "protein": 20, "fat": 10, "carbs": 40, "salt": 2.0, "fiber": 3.0}
     assert calls == [("豚汁", "", "唐揚げ定食、ご飯")]
     assert client.get("/api/meals").json()["ai"]["used"] == 0  # 写真の見積もりの回数は 使わない
 
@@ -223,3 +225,48 @@ def test_estimate_one_item(client, monkeypatch):
 def test_estimate_item_without_ai(client, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     assert client.post("/api/meals/estimate-item", json={"name": "豚汁"}).status_code == 503
+
+
+
+def test_salt_and_fiber(client):
+    """食塩と食物繊維も 記録して、1日の合計と 目安を出す。前の記録（数字なし）は 合計に入れない。"""
+    from app.models import Meal
+
+    item = {"name": "ラーメン", "amount": "1杯", "kcal": 700, "protein": 25, "fat": 25, "carbs": 90, "salt": 6.5, "fiber": 3}
+    meal = client.post("/api/meals", json={"items": [item, {**item, "name": "ギョーザ", "salt": 1.2, "fiber": 1.5}]}).json()
+    assert (meal["salt"], meal["fiber"]) == (7.7, 4.5)
+    data = client.get("/api/meals").json()
+    assert (data["totals"]["salt"], data["totals"]["fiber"], data["totals"]["partial"]) == (7.7, 4.5, False)
+    assert data["health"] == {"salt_max": 7.5, "fiber_min": 21}  # プロフィールがなければ 男性の目安
+
+    client.put("/api/sync/profile", json={"sex": "female"})
+    assert client.get("/api/meals").json()["health"] == {"salt_max": 6.5, "fiber_min": 18}
+
+    # マイメニュー：食塩と食物繊維も 量に合わせて
+    menu = client.post("/api/menu", json={"name": "ラーメン", "items": [item]}).json()
+    assert menu["salt"] == 6.5
+    eaten = client.post(f"/api/menu/{menu['id']}/eat", json={"servings": 0.5}).json()
+    assert (eaten["salt"], eaten["fiber"]) == (3.2, 1.5)
+
+    # 食塩・食物繊維を 送らない（前の画面など）ときは 0
+    plain = {k: v for k, v in item.items() if k not in ("salt", "fiber")}
+    assert client.post("/api/meals", json={"items": [plain]}).json()["salt"] == 0
+
+
+def test_old_meals_without_salt_are_partial(client, engine):
+    from datetime import datetime
+
+    from sqlmodel import Session
+
+    from app import clock
+    from app.models import Meal
+
+    with Session(engine) as session:  # この項目を作る前の記録
+        session.add(Meal(day=clock.today(), eaten_at=datetime.combine(clock.today(), datetime.min.time()).replace(hour=8),
+                         title="おにぎり", kcal=180, protein=3, fat=1, carbs=40))
+        session.commit()
+    assert client.get("/api/meals").json()["totals"]["salt"] is None
+    item = {"name": "味噌汁", "amount": "1杯", "kcal": 40, "protein": 3, "fat": 1, "carbs": 4, "salt": 1.8, "fiber": 1}
+    client.post("/api/meals", json={"items": [item]})
+    totals = client.get("/api/meals").json()["totals"]
+    assert (totals["salt"], totals["partial"]) == (1.8, True)

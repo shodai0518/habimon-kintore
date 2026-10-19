@@ -147,7 +147,7 @@ body.resting #app { padding-bottom: calc(130px + env(safe-area-inset-bottom)); }
 .photo-pick.full .button-like { opacity: 0.4; cursor: default; }
 #meal-note { width: 100%; margin-top: 8px; resize: vertical; line-height: 1.5; }
 .draft-item { display: flex; flex-direction: column; gap: 6px; padding: 10px 0; border-bottom: 1px dashed #444; }
-.draft-numbers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.draft-numbers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .draft-numbers label { display: flex; flex-direction: column; font-size: 0.7rem; color: var(--dim); }
 .draft-numbers input { width: 100%; padding: 6px 4px; }
 .draft-questions { border: 2px solid var(--accent); border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 8px; }
