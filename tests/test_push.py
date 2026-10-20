@@ -162,3 +162,28 @@ def test_notice_uses_partner_own_lines(client, keys, booked):
     client.post("/api/push/test")  # テストは いつもの文
     assert booked[-1][1]["body"] in push.PARTNER_LINES["test"]
     assert client.put("/api/sync/partner", json={"name": "x", "rank": "E", "level": 1, "lines": ["a"] * 9}).status_code == 422
+
+
+
+def test_rest_delay_uses_end_time():
+    """終わる時刻で決める：サーバーが起きるのを 40秒待っても、通知は 後ろにずれない。"""
+    from app.main import RestNotifyInput, rest_delay
+
+    now = 1_000_000.0
+    # スマホが「あと90秒（終わるのは now+50）」と送ったが、届いたのは 40秒後
+    late = RestNotifyInput(seconds=90, end_at=(now + 50) * 1000, name="ベンチプレス")
+    assert rest_delay(late, now) == 50
+    assert rest_delay(RestNotifyInput(seconds=90), now) == 90  # 時刻がなければ 秒数
+    # スマホの時計が 大きくずれている → 秒数を使う
+    assert rest_delay(RestNotifyInput(seconds=90, end_at=(now + 3600) * 1000), now) == 90
+    # もう過ぎている → すぐ
+    assert rest_delay(RestNotifyInput(seconds=1, end_at=(now - 5) * 1000), now) == 0
+
+
+def test_rest_notify_books_by_end_time(client, keys, booked):
+    import time
+
+    client.post("/api/push/subscribe", json=SUB)
+    end_at = (time.time() + 60) * 1000
+    client.post("/api/rest/notify", json={"seconds": 100, "end_at": end_at, "name": "スクワット"})
+    assert 58 <= booked[-1][0] <= 60  # 送られた 100秒ではなく、終わる時刻までの 60秒

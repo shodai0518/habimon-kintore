@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 SUBSCRIPTIONS_KEY = "push_subscriptions"  # 通知の送り先（スマホごとに1つ）
 MAX_SUBSCRIPTIONS = 5
-GRACE_SECONDS = 2  # 画面を開いているときは アプリが自分で鳴らして 取り消してくるので、少しだけ待つ
+GRACE_SECONDS = 0.5  # 画面を開いているときは アプリが自分で鳴らして 取り消してくるので、ほんの少しだけ待つ
 # 送り先として認める場所（Apple・Google・Mozilla・Microsoft の通知サーバー）。それ以外には 送らない
 PUSH_HOSTS = (".push.apple.com", "fcm.googleapis.com", ".push.services.mozilla.com", ".notify.windows.com")
 

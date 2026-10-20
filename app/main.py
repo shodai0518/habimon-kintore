@@ -8,6 +8,7 @@ import base64
 import hashlib
 import json
 import os
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -265,8 +266,23 @@ class PushEndpointInput(BaseModel):
 
 
 class RestNotifyInput(BaseModel):
-    seconds: float = Field(ge=0, le=3600)  # 休憩が終わるまでの秒数
+    seconds: float = Field(ge=0, le=3600)  # 休憩が終わるまでの秒数（送った時点）
+    end_at: float | None = None  # 休憩が終わる時刻（1970年からの ミリ秒。スマホの時計）
     name: str = Field(default="", max_length=60)  # 種目の名前
+
+
+CLOCK_SKEW_LIMIT = 120  # スマホとサーバーの時計が これ以上ずれていたら、時刻ではなく 秒数を使う
+
+
+def rest_delay(body: RestNotifyInput, now: float | None = None) -> float:
+    """あと何秒で 通知を送るか。終わる時刻で決める（サーバーが起きるのを待った分や 通信の遅れで ずれないように）。
+    スマホの時計が 大きくずれているときだけ、送られてきた秒数を使う。"""
+    if body.end_at is None:
+        return body.seconds
+    left = body.end_at / 1000 - (time.time() if now is None else now)
+    if abs(left - body.seconds) > CLOCK_SKEW_LIMIT:
+        return body.seconds
+    return max(0.0, left)
 
 
 @api.get("/push")
@@ -307,7 +323,7 @@ def rest_notify(body: RestNotifyInput, session: Session = Depends(get_session)):
     """休憩が終わる時刻に 通知を送るように 予約する（前の予約は 置きかえる）。相棒が話しかける形にする。"""
     if not push.configured() or not push.subscriptions(session):
         return {"scheduled": False}
-    push.schedule(body.seconds, {**push.partner_message(get_partner(session), "rest", body.name), "tag": "rest"})
+    push.schedule(rest_delay(body), {**push.partner_message(get_partner(session), "rest", body.name), "tag": "rest"})
     return {"scheduled": True}
 
 

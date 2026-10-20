@@ -193,7 +193,8 @@ function bookRestNotice() {
   if (!push.on || !rest) return;
   const seconds = (rest.endAt - Date.now()) / 1000;
   if (seconds <= 0) return cancelRestNotice();
-  api("/rest/notify", { method: "POST", body: { seconds, name: rest.name } }).catch(() => {});
+  // 終わる時刻も送る（サーバーが起きるのを待った分や 通信の遅れで、通知が後ろにずれないように）
+  api("/rest/notify", { method: "POST", body: { seconds, end_at: rest.endAt, name: rest.name } }).catch(() => {});
 }
 
 function cancelRestNotice() {
