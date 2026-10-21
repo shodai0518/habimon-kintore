@@ -270,3 +270,30 @@ def test_old_meals_without_salt_are_partial(client, engine):
     client.post("/api/meals", json={"items": [item]})
     totals = client.get("/api/meals").json()["totals"]
     assert (totals["salt"], totals["partial"]) == (1.8, True)
+
+
+
+def test_favorites_keep_their_order(client, monkeypatch):
+    """お気に入りは お気に入りにした順で 固定（食べても 動かない）。ほかは 最近食べた順。"""
+    from datetime import datetime, timedelta
+
+    from app import clock
+
+    now = [datetime(2026, 10, 21, 8, 0)]
+    monkeypatch.setattr(clock, "now", lambda: now[0])
+
+    def tick():
+        now[0] += timedelta(minutes=1)
+
+    ids = {}
+    for name in ("オイコス", "プロテイン", "唐揚げ定食", "サラダ"):
+        ids[name] = client.post("/api/menu", json={"name": name, "items": [OIKOS]}).json()["id"]
+        tick()
+    client.put(f"/api/menu/{ids['プロテイン']}/favorite", json={"favorite": True}); tick()
+    client.put(f"/api/menu/{ids['オイコス']}/favorite", json={"favorite": True}); tick()
+    names = lambda: [m["name"] for m in client.get("/api/meals").json()["menu"]]  # noqa: E731
+    assert names()[:2] == ["プロテイン", "オイコス"]
+
+    client.post(f"/api/menu/{ids['オイコス']}/eat", json={}); tick()  # 食べても お気に入りの順は 変わらない
+    client.post(f"/api/menu/{ids['サラダ']}/eat", json={}); tick()
+    assert names() == ["プロテイン", "オイコス", "サラダ", "唐揚げ定食"]  # ほかは 最近食べた順

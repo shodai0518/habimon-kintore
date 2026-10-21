@@ -90,6 +90,7 @@ class MenuItem(SQLModel, table=True):
     items: str = "[]"  # 品目ごとの内訳（JSON）
     use_count: int = 0
     favorite: bool = False  # お気に入り（いつも見えるところに出す）
+    favorited_at: NaiveDatetime | None = None  # お気に入りにした時刻（お気に入りは この順で 固定）
     last_used: NaiveDatetime | None = None
     created_at: NaiveDatetime = Field(default_factory=datetime.now)
 

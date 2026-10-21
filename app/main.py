@@ -632,9 +632,13 @@ def day_totals(meals: list[Meal]) -> dict:
 
 # ---- マイメニュー ----
 def menu_items(session: Session) -> list[MenuItem]:
-    """お気に入りが先。その中では 最近使ったものが上。"""
+    """お気に入りが先で、お気に入りにした順に 固定（食べても動かない。指で場所を覚えられるように）。
+    ほかは 最近使ったものが上。"""
     items = session.exec(select(MenuItem)).all()
-    return sorted(items, key=lambda m: (m.favorite, m.last_used or m.created_at, m.last_used is not None, m.id), reverse=True)
+    favorites = sorted((m for m in items if m.favorite), key=lambda m: (m.favorited_at or m.created_at, m.id))
+    others = sorted((m for m in items if not m.favorite),
+                    key=lambda m: (m.last_used or m.created_at, m.last_used is not None, m.id), reverse=True)
+    return favorites + others
 
 
 def menu_view(item: MenuItem) -> dict:
@@ -808,7 +812,11 @@ def favorite_menu(menu_id: int, body: FavoriteInput, session: Session = Depends(
     menu = session.get(MenuItem, menu_id)
     if menu is None:
         raise HTTPException(404, "そのマイメニューは見つかりません")
+    if body.favorite and not menu.favorite:
+        menu.favorited_at = clock.now()
     menu.favorite = body.favorite
+    if not body.favorite:
+        menu.favorited_at = None
     session.commit()
     session.refresh(menu)
     return menu_view(menu)
