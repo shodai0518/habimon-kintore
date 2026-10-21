@@ -753,7 +753,7 @@ function draftSection() {
     ${questions}
     <div id="draft-items">${rows}</div>
     <button type="button" id="draft-add" class="small" style="margin-top:8px">＋品目を足す</button>
-    <p class="hint">名前や量を変えると、数字も自動で直るよ（量が「200g → 300g」のように数字なら その割合で、ちがうときは AIで計算）。</p>
+    <p class="hint">名前や量を変えると、数字も自動で直るよ（量が「200g → 300g」のように数字なら その割合で、ちがうときは AIで計算）。たんぱく質・脂質・炭水化物を変えると、カロリーも合わせて直る。</p>
     <p class="draft-total" id="draft-total"></p>
     ${
       d.menuId
@@ -841,6 +841,7 @@ function amountRatio(before, after) {
 }
 
 const NUMBER_FIELDS = ["kcal", "protein", "fat", "carbs", "salt", "fiber"];
+const KCAL_PER_GRAM = { protein: 4, fat: 9, carbs: 4 }; // 1gあたりのカロリー
 const snapshot = (item) => ({ amount: item.amount, ...Object.fromEntries(NUMBER_FIELDS.map((k) => [k, Number(item[k]) || 0])) });
 let draftPending = 0; // AIで計算している途中の 品目の数
 
@@ -930,14 +931,26 @@ function renderMeals(data) {
     const items = document.getElementById("draft-items");
     items.addEventListener("input", (e) => {
       readDraft();
-      drawDraftTotal();
       // 数字を自分で直したら、それを「今の量の分」として覚える
       const row = e.target.closest(".draft-item");
-      if (row && NUMBER_FIELDS.includes(e.target.dataset.field)) {
+      const field = e.target.dataset.field;
+      if (row && NUMBER_FIELDS.includes(field)) {
         const item = mealDraft.items[Number(row.dataset.index)];
-        item.basis = snapshot(item);
         item.status = "";
+        // たんぱく質・脂質・炭水化物を変えたら、増えた（減った）分だけ カロリーも直す（1gあたり 4・9・4kcal）
+        const perGram = KCAL_PER_GRAM[field];
+        if (perGram) {
+          const change = Math.round((item[field] - item.basis[field]) * perGram);
+          if (change) {
+            item.kcal = Math.max(0, Math.round(item.kcal + change));
+            row.querySelector('[data-field="kcal"]').value = item.kcal;
+            item.status = "カロリーも 合わせて直した";
+          }
+        }
+        row.querySelector(`[data-status="${row.dataset.index}"]`).textContent = item.status;
+        item.basis = snapshot(item);
       }
+      drawDraftTotal();
     });
     // 名前や量を 変え終わったら（入力欄を離れたら）、数字を直す
     items.addEventListener("change", (e) => {
