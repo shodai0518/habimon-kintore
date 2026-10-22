@@ -149,6 +149,12 @@ def _fire(payload: dict) -> None:
         logger.exception("通知の送信でエラーが起きました")
 
 
+def notify_now(payload: dict) -> None:
+    """すぐに通知を送る（休憩の予約とは 別。裏で送るので 待たせない）。"""
+    thread = threading.Thread(target=_fire, args=[payload], daemon=True)
+    thread.start()
+
+
 def schedule(seconds: float, payload: dict) -> None:
     """seconds 秒後に 通知を送る（前の予約は 取り消す。予約は1つだけ）。"""
     global _timer

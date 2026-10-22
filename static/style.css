@@ -229,3 +229,6 @@ button.partner img.egg { animation: wobble 2.4s steps(1) infinite; }
 .push-line button { margin-left: 4px; }
 .draft-status { display: block; min-height: 0; margin: 2px 0 0; }
 .draft-status:empty { display: none; }
+.zoom-box { max-height: calc(100vh - 32px); overflow-y: auto; }
+.partner-comment { text-align: left; border-top: 1px dashed #555; padding-top: 8px; margin-top: 8px; }
+.partner-comment p { margin: 4px 0 0; line-height: 1.7; }

@@ -347,6 +347,7 @@ def read_partner(session: Session = Depends(get_session)):
     return {"partner": {
         "name": partner["name"], "rank": partner["rank"], "level": partner["level"],
         "motion": partner.get("motion", "hop"),
+        "comments": [{k: c[k] for k in ("kind", "label", "text")} for c in partner.get("comments") or []],
         # 画像が変わると 番号も変わるので、ずっと覚えておいてもらって大丈夫
         "image_url": f"/api/partner/image?v={partner['version']}" if partner.get("image") else None,
     }}
@@ -1024,12 +1025,20 @@ def sync_profile(body: ProfileInput, session: Session = Depends(get_session)):
 PARTNER_KEY = "partner"  # ハビットモンスターの相棒（名前・ランク・レベル・画像）。見るだけ
 
 
+class PartnerCommentInput(BaseModel):
+    id: int
+    kind: Literal["day", "week"]
+    label: str = Field(max_length=60)
+    text: str = Field(max_length=400)
+
+
 class PartnerInput(BaseModel):
     name: str = Field(min_length=1, max_length=20)
     rank: str = Field(min_length=1, max_length=2)
     level: int = Field(ge=1, le=999)
     motion: Literal["hop", "squish", "float", "spin", "sway", "shiver", "egg"] = "hop"  # なでたときの動き
     lines: list[str] | None = Field(default=None, max_length=8)  # 休憩おわりのセリフ（キャラごとに ハビモンが作る）
+    comments: list[PartnerCommentInput] | None = Field(default=None, max_length=4)  # 相棒からのコメント（きのう・先週）
     image: str | None = Field(default=None, max_length=800_000)  # WebP を base64 にした文字
 
 
@@ -1043,7 +1052,13 @@ def sync_partner(body: PartnerInput, session: Session = Depends(get_session)):
         except ValueError as err:
             raise HTTPException(400, "画像の形がちがいます") from err
         version = hashlib.sha1(body.image.encode()).hexdigest()[:12]
+    before = get_partner(session) or {}
     value = json.dumps({**body.model_dump(), "version": version}, ensure_ascii=False)
+    # 新しいコメントが届いたら 通知で知らせる（初めて相棒が届いたときは 知らせない）
+    seen = {c["id"] for c in before.get("comments") or []}
+    fresh = [c for c in body.comments or [] if c.id not in seen]
+    if before and fresh and push.configured() and push.subscriptions(session):
+        push.notify_now({"title": body.name, "body": f"{body.name}からメッセージが届いたよ（{fresh[0].label}）", "tag": "comment"})
     setting = session.get(AppSetting, PARTNER_KEY)
     if setting is None:
         session.add(AppSetting(key=PARTNER_KEY, value=value))

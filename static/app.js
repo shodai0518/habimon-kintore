@@ -417,6 +417,11 @@ partnerBtn.addEventListener("click", () => {
     <div class="pet-field"><img class="pet-target ${partner.motion === "egg" ? "egg" : ""}" src="${partner.image_url}" alt="${esc(partner.name)}をなでる"></div>
     <p><span class="name">${esc(partner.name)}</span>　ランク${esc(partner.rank)} Lv${partner.level}</p>
     <p class="hint">タップで なでられるよ</p>
+    ${(partner.comments ?? [])
+      .slice()
+      .sort((a, b) => (new Date().getDay() === 1 ? (a.kind === "week" ? -1 : 1) : a.kind === "day" ? -1 : 1))
+      .map((c) => `<div class="partner-comment"><small class="hint">${esc(c.label)}</small><p>${esc(c.text)}</p></div>`)
+      .join("")}
   </div>`;
   back.addEventListener("click", (e) => {
     if (e.target === back || e.target.closest(".zoom-close")) back.remove();

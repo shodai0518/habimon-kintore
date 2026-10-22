@@ -187,3 +187,19 @@ def test_rest_notify_books_by_end_time(client, keys, booked):
     end_at = (time.time() + 60) * 1000
     client.post("/api/rest/notify", json={"seconds": 100, "end_at": end_at, "name": "スクワット"})
     assert 58 <= booked[-1][0] <= 60  # 送られた 100秒ではなく、終わる時刻までの 60秒
+
+
+
+def test_new_comment_is_notified(client, keys, monkeypatch):
+    """相棒から 新しいコメントが届いたら 通知で知らせる（同じコメントで 2回は 知らせない）。"""
+    sent = []
+    monkeypatch.setattr(push, "notify_now", lambda payload: sent.append(payload))
+    client.post("/api/push/subscribe", json=SUB)
+    base = {"name": "キノバット", "rank": "E", "level": 6}
+    client.put("/api/sync/partner", json=base)  # 初めて届いた：知らせない
+    day = {"id": 1, "kind": "day", "label": "10/21のふりかえり", "text": "がんばったね"}
+    client.put("/api/sync/partner", json={**base, "comments": [day]})
+    assert sent == [{"title": "キノバット", "body": "キノバットからメッセージが届いたよ（10/21のふりかえり）", "tag": "comment"}]
+    client.put("/api/sync/partner", json={**base, "level": 7, "comments": [day]})
+    assert len(sent) == 1  # 同じコメント
+    assert client.get("/api/partner").json()["partner"]["comments"] == [{"kind": "day", "label": "10/21のふりかえり", "text": "がんばったね"}]

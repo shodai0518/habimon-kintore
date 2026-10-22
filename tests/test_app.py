@@ -240,7 +240,7 @@ def test_partner_from_habimon(client):
 
     # 画像がない（卵など）
     client.put("/api/sync/partner", json={"name": "卵", "rank": "D", "level": 1, "image": None})
-    assert client.get("/api/partner").json()["partner"] == {"name": "卵", "rank": "D", "level": 1, "motion": "hop", "image_url": None}
+    assert client.get("/api/partner").json()["partner"] == {"name": "卵", "rank": "D", "level": 1, "motion": "hop", "comments": [], "image_url": None}
 
     # なでたときの動きも 届く
     client.put("/api/sync/partner", json={"name": "キノバット", "rank": "E", "level": 7, "motion": "float", "image": image})
