@@ -1063,7 +1063,23 @@ def sync_recent(days: int = 7, session: Session = Depends(get_session)):
     rows = session.exec(select(Workout).where(Workout.day >= since).order_by(Workout.id)).all()
     return {"workouts": [{"id": w.id, "day": w.day, "status": w.status, "started_at": w.started_at, "ended_at": w.ended_at,
                           "menu_id": w.menu_id, "sets": len(rows_of(session, w.id))} for w in rows],
-            "menus": len(session.exec(select(WorkoutMenu)).all())}
+            "menus": len(session.exec(select(WorkoutMenu)).all()),
+            # 最後に作られた番号（消えた記録が あったかを 見分ける。PostgreSQL のときだけ）
+            "last_ids": last_ids(session)}
+
+
+def last_ids(session: Session) -> dict:
+    from sqlalchemy import text
+
+    if session.get_bind().dialect.name != "postgresql":
+        return {}
+    result = {}
+    for table in ("workout", "workoutset", "meal"):
+        try:
+            result[table] = session.exec(text(f"SELECT last_value FROM {table}_id_seq")).one()[0]
+        except Exception:
+            session.rollback()
+    return result
 
 
 class ImportExercise(BaseModel):
