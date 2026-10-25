@@ -6,6 +6,7 @@ from datetime import timedelta
 APP_NAME = "ハビモン筋トレ"
 TIMEZONE = os.getenv("APP_TIMEZONE", "Asia/Tokyo")  # サーバーがどこにあっても、この時間で記録する
 DAY_START_HOUR = 4
+CANCELED_KEEP_DAYS = 3  # 「やめる」を押した筋トレを 元に戻せる日数
 MENU_MAX = 10  # 筋トレメニューの数
 MENU_ITEMS_MAX = 15  # 1つのメニューの 種目の数
 MENU_AI_DAILY_LIMIT = 10  # メニューの文を AIで読み取る 1日の回数  # 1日の区切り（朝4時。ハビモンと同じ）

@@ -246,3 +246,5 @@ button.menu-run-item.done { opacity: 0.55; }
 button.menu-run-item.next { border-color: var(--accent); }
 button.menu-run-item small { flex: none; }
 .menu-target { color: var(--accent); }
+.cancel-row { display: flex; align-items: center; gap: 8px; margin-top: 18px; padding-top: 10px; border-top: 1px dashed #555; flex-wrap: wrap; }
+.cancel-row .hint { margin: 0; }

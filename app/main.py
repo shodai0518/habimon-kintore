@@ -523,10 +523,14 @@ def read_workouts(session: Session = Depends(get_session)):
         select(Workout).where(Workout.status == "done", Workout.day >= since).order_by(Workout.started_at.desc())
     ).all()
     last_weight = session.exec(
-        select(Workout).where(Workout.body_weight.is_not(None)).order_by(Workout.started_at.desc())
+        select(Workout).where(Workout.body_weight.is_not(None), Workout.status != "canceled").order_by(Workout.started_at.desc())
     ).first()
+    canceled = session.exec(select(Workout).where(
+        Workout.status == "canceled", Workout.day >= clock.today() - timedelta(days=config.CANCELED_KEEP_DAYS - 1))
+        .order_by(Workout.started_at.desc())).all()
     return {
         "current": workout_view(session, active) if active else None,
+        "canceled": [{"id": w.id, "day": w.day, "started_at": w.started_at, "set_count": len(rows_of(session, w.id))} for w in canceled],
         "history": [workout_view(session, w) for w in done],
         "last_weight": last_weight.body_weight if last_weight else None,
         "last_fat": last_weight.body_fat if last_weight else None,
@@ -631,14 +635,29 @@ def delete_set(set_id: int, session: Session = Depends(get_session)):
 
 @api.delete("/workouts/{workout_id}")
 def cancel(workout_id: int, session: Session = Depends(get_session)):
-    """記録中の筋トレを やめる（記録は残らない）。"""
+    """記録中の筋トレを やめる。セットがあれば 消さずに しまっておき、数日のあいだは 元に戻せる
+    （押しまちがえで 記録が消えないように）。セットがなければ そのまま消す。"""
     w = load(session, workout_id, "active")
-    for s in session.exec(select(WorkoutSet).where(WorkoutSet.workout_id == w.id)).all():
-        session.delete(s)
-    session.flush()  # 先にセットを消してから 本体を消す（PostgreSQL は 順番がちがうと 断る）
-    session.delete(w)
+    if not rows_of(session, w.id):
+        session.delete(w)
+        session.commit()
+        return {"ok": True, "kept": False}
+    w.status = "canceled"
+    w.ended_at = clock.now()
     session.commit()
-    return {"ok": True}
+    return {"ok": True, "kept": True}
+
+
+@api.post("/workouts/{workout_id}/restore")
+def restore(workout_id: int, session: Session = Depends(get_session)):
+    """やめた筋トレを 記録中に戻す。"""
+    w = load(session, workout_id, "canceled")
+    if get_active(session):
+        raise HTTPException(409, "記録中の筋トレがあるので 戻せない。先に終わるか やめてね")
+    w.status = "active"
+    w.ended_at = None
+    session.commit()
+    return workout_view(session, w)
 
 
 @api.post("/workouts/{workout_id}/finish")
@@ -732,7 +751,7 @@ def bmr_now(session: Session) -> dict | None:
 def workout_kcal_on(session: Session, day) -> int:
     """その日に 筋トレで使ったカロリー（終わったものと 記録中のもの）。"""
     total = 0
-    for w in session.exec(select(Workout).where(Workout.day == day)).all():
+    for w in session.exec(select(Workout).where(Workout.day == day, Workout.status != "canceled")).all():
         total += calories_for(session, w, rows_of(session, w.id))["total"] or 0
     return total
 

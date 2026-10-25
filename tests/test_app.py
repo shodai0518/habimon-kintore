@@ -249,3 +249,22 @@ def test_partner_from_habimon(client):
 
     assert client.put("/api/sync/partner", json={"name": "x", "rank": "E", "level": 1, "image": "これは画像じゃない"}).status_code == 400
     assert client.put("/api/sync/partner", json={"name": "", "rank": "E", "level": 1}).status_code == 422
+
+
+
+def test_cancel_keeps_sets_and_can_restore(client):
+    """「やめる」を押しても、セットがあれば しまっておき、元に戻せる（押しまちがえで 消えないように）。"""
+    empty = client.post("/api/workouts/start", json={}).json()  # セットがないときは そのまま消す
+    assert client.delete(f"/api/workouts/{empty['id']}").json() == {"ok": True, "kept": False}
+    w = client.post("/api/workouts/start", json={"body_weight": 70}).json()
+    ex = client.get("/api/exercises").json()["exercises"][0]
+    client.post(f"/api/workouts/{w['id']}/sets", json={"exercise_id": ex["id"], "weight": 60, "reps": 8})
+    assert client.delete(f"/api/workouts/{w['id']}").json() == {"ok": True, "kept": True}
+    data = client.get("/api/workouts").json()
+    assert data["current"] is None and data["canceled"][0]["set_count"] == 1
+    assert data["history"] == []  # 履歴にも ハビモンにも 出ない
+    assert client.get("/api/sync/workouts").json()["workouts"] == []
+    restored = client.post(f"/api/workouts/{w['id']}/restore").json()
+    assert restored["status"] == "active" and restored["set_count"] == 1
+    assert client.get("/api/workouts").json()["canceled"] == []
+

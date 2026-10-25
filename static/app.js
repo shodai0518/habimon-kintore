@@ -1155,7 +1155,19 @@ function renderStart(data) {
     <div class="row" style="margin-top:6px"><span style="width:3em">体重</span>
       <input type="number" name="weight" id="${prefix}-weight" step="0.1" min="0" value="${weight}" inputmode="decimal" style="width:6em"> kg
       <span>体脂肪</span><input type="number" name="fat" step="0.1" min="0" max="80" value="${fat}" inputmode="decimal" style="width:4.5em" placeholder="任意"> %</div>`;
+  const canceled = (data.canceled ?? [])
+    .map(
+      (c) => `<li class="menu-row"><span class="grow">${dayLabel(c.day)} ${hhmm(c.started_at)}〜（${c.set_count}セット）</span>
+        <button class="small" data-restore="${c.id}">元に戻す</button></li>`,
+    )
+    .join("");
   view.innerHTML = `
+    ${
+      canceled
+        ? `<section class="window"><h2>やめた筋トレ</h2><ul class="list">${canceled}</ul>
+           <p class="hint">押しまちがえて やめたときは、「元に戻す」で 記録中に戻せるよ。</p></section>`
+        : ""
+    }
     <section class="window">
       <h2>今から筋トレ</h2>
       <form id="start-form">
@@ -1195,6 +1207,15 @@ function renderStart(data) {
 
   drawPushLine();
   bindWorkoutMenus();
+  view.querySelectorAll("[data-restore]").forEach((btn) =>
+    btn.addEventListener("click", () =>
+      run(async () => {
+        btn.disabled = true;
+        await api(`/workouts/${btn.dataset.restore}/restore`, { method: "POST" });
+        await render();
+      }),
+    ),
+  );
   const body = (form) => {
     const f = new FormData(form);
     return {
@@ -1677,12 +1698,12 @@ function renderActive(w, ex) {
     <section class="window">
       <form id="finish-form">
         <div class="row"><span>終了</span><input type="datetime-local" name="end" value="${plannedEnd ?? localDateTime(new Date())}"></div>
-        <div class="row" style="margin-top:10px">
-          <button type="button" id="finish" class="grow">筋トレを終わる</button>
-          <button type="button" id="cancel" class="small danger">やめる</button>
-        </div>
+        <button type="button" id="finish" class="primary" style="margin-top:10px">筋トレを終わる</button>
       </form>
-      <p class="hint">「やめる」を押すと、この筋トレの記録は消えるよ。</p>
+      <div class="cancel-row">
+        <button type="button" id="cancel" class="small danger">この筋トレをやめる</button>
+        <span class="hint">やめても 3日のあいだは「元に戻す」で戻せるよ。</span>
+      </div>
     </section>`;
 
   // 経過時間
@@ -1783,10 +1804,11 @@ function renderActive(w, ex) {
       await render();
     });
   });
-  confirmTwice(document.getElementById("cancel"), "本当にやめる？", () =>
+  confirmTwice(document.getElementById("cancel"), "本当にやめる？（もう一度押す）", () =>
     run(async () => {
-      await api(`/workouts/${w.id}`, { method: "DELETE" });
+      const res = await api(`/workouts/${w.id}`, { method: "DELETE" });
       stopRest();
+      if (res.kept) await showMessages(["筋トレをやめた。", "記録は しまっておいたよ。押しまちがえなら「元に戻す」で戻せる（3日のあいだ）。"]);
       await render();
     }),
   );

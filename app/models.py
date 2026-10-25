@@ -36,7 +36,7 @@ class Workout(SQLModel, table=True):
     started_at: NaiveDatetime
     ended_at: NaiveDatetime | None = None
     planned_end: NaiveDatetime | None = None  # あとから記録するときの 終了時刻
-    status: str = "active"  # active（記録中） / done
+    status: str = "active"  # active（記録中） / done / canceled（やめた。元に戻せる）
     body_weight: float | None = None  # 筋トレ前の体重（kg）
     body_fat: float | None = None  # 体脂肪率（%）
     memo: str | None = None
