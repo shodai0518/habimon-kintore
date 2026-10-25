@@ -1056,6 +1056,16 @@ def sync_workouts(since: str | None = None, session: Session = Depends(get_sessi
     }
 
 
+@sync.get("/recent")
+def sync_recent(days: int = 7, session: Session = Depends(get_session)):
+    """最近の筋トレ（記録中のものも）の ようす。記録が消えたときなどに 確かめる用（読むだけ）。"""
+    since = clock.today() - timedelta(days=max(1, min(days, 60)))
+    rows = session.exec(select(Workout).where(Workout.day >= since).order_by(Workout.id)).all()
+    return {"workouts": [{"id": w.id, "day": w.day, "status": w.status, "started_at": w.started_at, "ended_at": w.ended_at,
+                          "menu_id": w.menu_id, "sets": len(rows_of(session, w.id))} for w in rows],
+            "menus": len(session.exec(select(WorkoutMenu)).all())}
+
+
 class ImportExercise(BaseModel):
     name: str = Field(min_length=1, max_length=30)
     part: PartKey
