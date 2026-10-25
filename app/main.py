@@ -19,9 +19,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
-from app import auth, calorie, clock, config, food_ai, push, rules
+from app import auth, calorie, clock, config, food_ai, menu_ai, push, rules
 from app.db import engine, get_session, init_db
-from app.models import AiUsage, AppSetting, Exercise, Meal, MenuItem, Workout, WorkoutSet
+from app.models import AiUsage, AppSetting, Exercise, Meal, MenuItem, Workout, WorkoutMenu, WorkoutSet
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 PartKey = Literal["chest", "shoulders", "arms", "back", "abs", "legs", "cardio"]
@@ -33,6 +33,7 @@ class LoginInput(BaseModel):
 
 
 class StartInput(BaseModel):
+    menu_id: int | None = None  # 使う 筋トレメニュー
     body_weight: float | None = Field(default=None, gt=0, lt=500)
     body_fat: float | None = Field(default=None, gt=0, lt=80)
     started_at: datetime | None = None  # あとから記録するときに 指定する
@@ -183,7 +184,25 @@ def workout_view(session: Session, w: Workout) -> dict:
         "status": w.status, "body_weight": w.body_weight, "body_fat": w.body_fat, "memo": w.memo, "minutes": w.minutes,
         "warmups": warmups, "exercises": list(groups.values()), "set_count": len(rows),
         "kcal": calories["total"], "kcal_weight": calories["weight_used"],
+        "menu": workout_menu_progress(session, w, rows),
     }
+
+
+def workout_menu_progress(session: Session, w: Workout, rows) -> dict | None:
+    """この筋トレの メニューと、種目ごとに 何セット やったか（えらんだ代わりの種目も 数える）。"""
+    menu = session.get(WorkoutMenu, w.menu_id) if w.menu_id else None
+    if menu is None:
+        return None
+    done: dict[int, int] = {}
+    for _, ex in rows:
+        done[ex.id] = done.get(ex.id, 0) + 1
+    view = workout_menu_view(session, menu)
+    for item in view["items"]:
+        ids = [item["exercise_id"]] + [a["id"] for a in item["alternatives"]]
+        item["done"] = sum(done.get(i, 0) for i in ids)
+        used = next((i for i in ids if done.get(i)), None)
+        item["used_id"] = used  # 実際に やった種目（代わりの種目のときも）
+    return view
 
 
 def get_active(session: Session) -> Workout | None:
@@ -233,6 +252,140 @@ def set_rest(exercise_id: int, body: RestInput, session: Session = Depends(get_s
     ex.rest_seconds = body.seconds
     session.commit()
     return {"rest_seconds": rest_seconds(ex)}
+
+
+# ---- 筋トレメニュー ----
+class MenuItemInput(BaseModel):
+    exercise: str = Field(min_length=1, max_length=30)  # 種目の名前（なければ 作る）
+    part: PartKey = "legs"  # 新しく作るときの 部位
+    alternatives: list[str] = Field(default=[], max_length=3)
+    sets_min: int = Field(default=3, ge=1, le=20)
+    sets_max: int = Field(default=3, ge=1, le=20)
+    reps: str = Field(default="", max_length=30)
+    note: str = Field(default="", max_length=80)
+
+
+class WorkoutMenuInput(BaseModel):
+    name: str = Field(min_length=1, max_length=30)
+    items: list[MenuItemInput] = Field(min_length=1, max_length=config.MENU_ITEMS_MAX)
+
+
+class MenuTextInput(BaseModel):
+    text: str = Field(min_length=10, max_length=6000)
+
+
+class WorkoutMenuChoice(BaseModel):
+    menu_id: int | None = None
+
+
+def find_or_create_exercise(session: Session, name: str, part: str) -> Exercise:
+    name = name.strip()[:30]
+    ex = session.exec(select(Exercise).where(Exercise.name == name)).first()
+    if ex is None:
+        ex = Exercise(name=name, part=part, mets_estimated=False,
+                      mets=config.DEFAULT_CARDIO_METS if part == "cardio" else config.DEFAULT_METS)
+        session.add(ex)
+        session.flush()
+    return ex
+
+
+def workout_menu_view(session: Session, menu: WorkoutMenu) -> dict:
+    items = []
+    for raw in json.loads(menu.items):
+        ex = session.get(Exercise, raw["exercise_id"])
+        if ex is None:
+            continue
+        alts = [a for a in (session.get(Exercise, i) for i in raw.get("alternative_ids", [])) if a]
+        items.append({
+            "exercise_id": ex.id, "name": ex.name, "part": ex.part, "part_label": config.BODY_PARTS[ex.part],
+            "alternatives": [{"id": a.id, "name": a.name, "part": a.part} for a in alts],
+            "sets_min": raw["sets_min"], "sets_max": raw["sets_max"], "reps": raw.get("reps", ""), "note": raw.get("note", ""),
+        })
+    return {"id": menu.id, "name": menu.name, "items": items}
+
+
+def save_workout_menu(session: Session, body: WorkoutMenuInput, menu: WorkoutMenu | None = None) -> WorkoutMenu:
+    items = []
+    for item in body.items:
+        ex = find_or_create_exercise(session, item.exercise, item.part)
+        alts = [find_or_create_exercise(session, name, item.part).id for name in item.alternatives if name.strip()]
+        items.append({"exercise_id": ex.id, "alternative_ids": alts, "sets_min": min(item.sets_min, item.sets_max),
+                      "sets_max": max(item.sets_min, item.sets_max), "reps": item.reps.strip(), "note": item.note.strip()})
+    if menu is None:
+        if len(session.exec(select(WorkoutMenu)).all()) >= config.MENU_MAX:
+            raise HTTPException(409, f"メニューは{config.MENU_MAX}個までです")
+        menu = WorkoutMenu(name=body.name.strip(), position=len(session.exec(select(WorkoutMenu)).all()), created_at=clock.now())
+    menu.name = body.name.strip()
+    menu.items = json.dumps(items, ensure_ascii=False)
+    session.add(menu)
+    session.commit()
+    session.refresh(menu)
+    return menu
+
+
+@api.get("/workout-menus")
+def read_workout_menus(session: Session = Depends(get_session)):
+    menus = session.exec(select(WorkoutMenu).order_by(WorkoutMenu.position, WorkoutMenu.id)).all()
+    usage = session.get(AiUsage, clock.today())
+    return {"menus": [workout_menu_view(session, m) for m in menus], "ai": {"available": menu_ai.available(),
+            "left": config.MENU_AI_DAILY_LIMIT - (usage.menu_count if usage else 0)},
+            "parts": config.BODY_PARTS, "exercises": [e.name for e in session.exec(select(Exercise).order_by(Exercise.name))]}
+
+
+@api.post("/workout-menus/parse")
+def parse_workout_menus(body: MenuTextInput, session: Session = Depends(get_session)):
+    """メニューの文を AIで読み取る（まだ保存しない。画面で確かめて 直してから 保存する）。"""
+    if not menu_ai.available():
+        raise HTTPException(503, "AIがまだ設定されていません。自分で入れてね")
+    usage = session.get(AiUsage, clock.today()) or AiUsage(day=clock.today(), count=0)
+    if usage.menu_count >= config.MENU_AI_DAILY_LIMIT:
+        raise HTTPException(429, f"今日は もう{config.MENU_AI_DAILY_LIMIT}回 読み取りました")
+    usage.menu_count += 1
+    session.add(usage)
+    session.commit()
+    existing = [(e.name, e.part) for e in session.exec(select(Exercise))]
+    plan = menu_ai.parse(body.text, existing)
+    if plan is None or not plan.menus:
+        raise HTTPException(502, "読み取れなかった。少し待ってから もう一度試してね")
+    names = {name for name, _ in existing}
+    return {"menus": [{"name": m.name[:30], "items": [{**i.model_dump(), "exists": i.exercise in names} for i in m.items]}
+                      for m in plan.menus]}
+
+
+@api.post("/workout-menus")
+def create_workout_menu(body: WorkoutMenuInput, session: Session = Depends(get_session)):
+    return workout_menu_view(session, save_workout_menu(session, body))
+
+
+@api.put("/workout-menus/{menu_id}")
+def update_workout_menu(menu_id: int, body: WorkoutMenuInput, session: Session = Depends(get_session)):
+    menu = session.get(WorkoutMenu, menu_id)
+    if menu is None:
+        raise HTTPException(404, "そのメニューは見つかりません")
+    return workout_menu_view(session, save_workout_menu(session, body, menu))
+
+
+@api.delete("/workout-menus/{menu_id}")
+def delete_workout_menu(menu_id: int, session: Session = Depends(get_session)):
+    menu = session.get(WorkoutMenu, menu_id)
+    if menu is None:
+        raise HTTPException(404, "そのメニューは見つかりません")
+    for w in session.exec(select(Workout).where(Workout.menu_id == menu_id)):
+        w.menu_id = None
+    session.delete(menu)
+    session.commit()
+    return {"ok": True}
+
+
+@api.put("/workouts/{workout_id}/menu")
+def choose_workout_menu(workout_id: int, body: WorkoutMenuChoice, session: Session = Depends(get_session)):
+    """筋トレの途中で メニューを えらぶ・やめる。"""
+    w = load(session, workout_id, "active")
+    if body.menu_id is not None and session.get(WorkoutMenu, body.menu_id) is None:
+        raise HTTPException(404, "そのメニューは見つかりません")
+    w.menu_id = body.menu_id
+    session.commit()
+    return workout_view(session, w)
 
 
 @api.post("/exercises")
@@ -394,9 +547,11 @@ def start(body: StartInput, session: Session = Depends(get_session)):
     if clock.game_day(started) < clock.today() - timedelta(days=config.WORKOUT_BACKFILL_DAYS):
         raise HTTPException(400, f"記録できるのは {config.WORKOUT_BACKFILL_DAYS}日前までです")
     planned_end = naive(body.planned_end)
+    if body.menu_id is not None and session.get(WorkoutMenu, body.menu_id) is None:
+        raise HTTPException(404, "そのメニューは見つかりません")
     w = Workout(day=clock.game_day(started), started_at=started,
                 planned_end=planned_end if planned_end and planned_end > started else None,
-                body_weight=body.body_weight, body_fat=body.body_fat)
+                body_weight=body.body_weight, body_fat=body.body_fat, menu_id=body.menu_id)
     session.add(w)
     session.commit()
     session.refresh(w)

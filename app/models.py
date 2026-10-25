@@ -18,6 +18,16 @@ class Exercise(SQLModel, table=True):
     created_at: NaiveDatetime = Field(default_factory=datetime.now)
 
 
+class WorkoutMenu(SQLModel, table=True):
+    """筋トレメニュー（「下半身の日」など）。種目と セット・回数の目安を 順番に"""
+
+    id: int | None = Field(default=None, primary_key=True)
+    name: str
+    items: str = "[]"  # JSON：[{exercise_id, alternative_ids, sets_min, sets_max, reps, note}]
+    position: int = 0  # 並び順
+    created_at: NaiveDatetime = Field(default_factory=datetime.now)
+
+
 class Workout(SQLModel, table=True):
     """1回の筋トレ"""
 
@@ -33,6 +43,7 @@ class Workout(SQLModel, table=True):
     minutes: int | None = None
     warmups: str | None = None  # 種目ごとの アップのセット数（JSON：種目のid → 数）
     source_id: int | None = None  # ハビモンから引っ越してきた記録の、ハビモンでの番号
+    menu_id: int | None = None  # この筋トレで使っている メニュー
 
 
 class WorkoutSet(SQLModel, table=True):
@@ -74,6 +85,7 @@ class AiUsage(SQLModel, table=True):
     day: date = Field(primary_key=True)
     count: int = 0
     item_count: int = 0  # 品目を1つだけ 計算し直した回数
+    menu_count: int = 0  # 筋トレメニューの文を 読み取った回数
 
 
 class MenuItem(SQLModel, table=True):

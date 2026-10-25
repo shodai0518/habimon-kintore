@@ -1160,6 +1160,14 @@ function renderStart(data) {
       <h2>今から筋トレ</h2>
       <form id="start-form">
         ${bodyInputs("start")}
+        ${
+          workoutMenus.menus.length
+            ? `<div class="row" style="margin-top:6px"><span style="width:3em">メニュー</span>
+                 <select name="menu" class="grow"><option value="">使わない</option>${workoutMenus.menus
+                   .map((m) => `<option value="${m.id}">${esc(m.name)}（${m.items.length}種目）</option>`)
+                   .join("")}</select></div>`
+            : ""
+        }
         <button class="primary" style="margin-top:10px">筋トレ開始！</button>
       </form>
       <p class="hint">体重は筋トレの前に測ったものを。体脂肪率は大まかな値でOK（なくてもOK）。</p>
@@ -1172,6 +1180,7 @@ function renderStart(data) {
           : ""
       }
     </section>
+    ${workoutMenuSection()}
     <section class="window">
       <h2>あとから記録する</h2>
       <form id="backfill-form">
@@ -1185,9 +1194,14 @@ function renderStart(data) {
     ${historySection(data.history)}`;
 
   drawPushLine();
+  bindWorkoutMenus();
   const body = (form) => {
     const f = new FormData(form);
-    return { body_weight: f.get("weight") ? Number(f.get("weight")) : null, body_fat: f.get("fat") ? Number(f.get("fat")) : null };
+    return {
+      body_weight: f.get("weight") ? Number(f.get("weight")) : null,
+      body_fat: f.get("fat") ? Number(f.get("fat")) : null,
+      menu_id: f.get("menu") ? Number(f.get("menu")) : null,
+    };
   };
   document.getElementById("start-form").addEventListener("submit", (e) => {
     e.preventDefault();
@@ -1206,6 +1220,318 @@ function renderStart(data) {
       await render();
     });
   });
+}
+
+// ---- 筋トレメニュー（Gemini などが考えたメニューを 登録して、筋トレ中に 順番に進める）----
+let workoutMenus = { menus: [], ai: { available: false, left: 0 }, parts: {}, exercises: [] };
+let menuEdit = null; // 直している メニュー { id?, name, items: [...] }
+let menuPaste = null; // 貼りつけて 読み取る途中 { text, parsed: [...] | null }
+let menuRunOpen = false; // 筋トレ中の メニューの一覧を 開いているか
+
+const setsText = (i) => (i.sets_min === i.sets_max ? `${i.sets_max}セット` : `${i.sets_min}〜${i.sets_max}セット`);
+
+function workoutMenuSection() {
+  const list = workoutMenus.menus.length
+    ? `<ul class="list">${workoutMenus.menus
+        .map(
+          (m) => `<li class="menu-row">
+            <div class="grow"><b>${esc(m.name)}</b><br><small class="hint">${m.items.map((i) => esc(i.name)).join("・")}</small></div>
+            <button class="small" data-wmenu-edit="${m.id}">直す</button>
+            <button class="small danger" data-wmenu-delete="${m.id}">消す</button>
+          </li>`,
+        )
+        .join("")}</ul>`
+    : '<p class="hint" style="margin-top:0">よくやるメニューを登録しておくと、筋トレ中に 種目を順番に進められるよ。</p>';
+  return `<section class="window">
+    <h2>筋トレメニュー</h2>
+    ${list}
+    <div class="row" style="margin-top:8px">
+      <button class="grow" id="wmenu-paste" ${workoutMenus.ai.available ? "" : "disabled"}>メニューの文を貼りつけて登録</button>
+      <button class="small" id="wmenu-new">自分で作る</button>
+    </div>
+  </section>`;
+}
+
+function bindWorkoutMenus() {
+  document.getElementById("wmenu-paste")?.addEventListener("click", () => {
+    menuPaste = { text: "", parsed: null };
+    render();
+  });
+  document.getElementById("wmenu-new")?.addEventListener("click", () => {
+    menuEdit = { name: "", items: [blankMenuItem()] };
+    render();
+  });
+  view.querySelectorAll("[data-wmenu-edit]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const m = workoutMenus.menus.find((x) => x.id === Number(btn.dataset.wmenuEdit));
+      menuEdit = {
+        id: m.id,
+        name: m.name,
+        items: m.items.map((i) => ({
+          exercise: i.name, part: i.part, alternatives: i.alternatives.map((a) => a.name).join("、"),
+          sets_min: i.sets_min, sets_max: i.sets_max, reps: i.reps, note: i.note,
+        })),
+      };
+      render();
+    }),
+  );
+  view.querySelectorAll("[data-wmenu-delete]").forEach((btn) =>
+    confirmTwice(btn, "本当に消す？", () =>
+      run(async () => {
+        await api(`/workout-menus/${btn.dataset.wmenuDelete}`, { method: "DELETE" });
+        await render();
+      }),
+    ),
+  );
+}
+
+const blankMenuItem = () => ({ exercise: "", part: "legs", alternatives: "", sets_min: 3, sets_max: 3, reps: "", note: "" });
+
+// 貼りつけて AIで読み取る
+function renderMenuPaste() {
+  const p = menuPaste;
+  view.innerHTML = `
+    <section class="window">
+      <h2>メニューの文を貼りつける</h2>
+      <p class="hint" style="margin-top:0">Gemini などが考えた メニューの文を そのまま貼りつけてね。AIが 種目・セット数・回数・注意書きに 分けるよ（今日あと${workoutMenus.ai.left}回）。</p>
+      <textarea id="wmenu-text" rows="10" maxlength="6000" placeholder="例：下半身の日\n・バックスクワット 5〜8回 × 2セット\n・RDL 8〜10回 × 3セット">${esc(p.text)}</textarea>
+      <div class="row" style="margin-top:8px">
+        <button class="grow" id="wmenu-parse">AIで読み取る</button>
+        <button class="small danger" id="wmenu-paste-cancel">やめる</button>
+      </div>
+    </section>
+    ${
+      p.parsed
+        ? `<section class="window">
+            <h2>読み取ったメニュー（${p.parsed.length}つ）</h2>
+            <ul class="list">${p.parsed
+              .map(
+                (m, i) => `<li class="menu-row">
+                  <div class="grow"><b>${esc(m.name)}</b><br><small class="hint">${m.items
+                    .map((it) => `${esc(it.exercise)}${it.exists ? "" : "（新）"}`)
+                    .join("・")}</small></div>
+                  <button class="small" data-parsed-edit="${i}">確かめて保存</button>
+                </li>`,
+              )
+              .join("")}</ul>
+            <p class="hint">（新）は 新しく作る種目。「確かめて保存」で 1つずつ直してから保存できるよ。</p>
+            <button class="primary" id="wmenu-save-all" style="margin-top:8px">全部そのまま保存</button>
+          </section>`
+        : ""
+    }`;
+  const textarea = document.getElementById("wmenu-text");
+  textarea.addEventListener("input", () => (p.text = textarea.value));
+  document.getElementById("wmenu-paste-cancel").addEventListener("click", () => {
+    menuPaste = null;
+    render();
+  });
+  document.getElementById("wmenu-parse").addEventListener("click", (e) =>
+    run(async () => {
+      if (p.text.trim().length < 10) throw new Error("メニューの文を貼りつけてね");
+      e.target.disabled = true;
+      e.target.textContent = "AIが読んでいる…";
+      try {
+        p.parsed = (await api("/workout-menus/parse", { method: "POST", body: { text: p.text } })).menus;
+      } finally {
+        e.target.disabled = false;
+      }
+      await render();
+    }),
+  );
+  view.querySelectorAll("[data-parsed-edit]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const m = p.parsed[Number(btn.dataset.parsedEdit)];
+      menuEdit = { name: m.name, items: m.items.map((i) => ({ ...i, alternatives: i.alternatives.join("、") })), fromPaste: Number(btn.dataset.parsedEdit) };
+      render();
+    }),
+  );
+  document.getElementById("wmenu-save-all")?.addEventListener("click", (e) =>
+    run(async () => {
+      e.target.disabled = true;
+      for (const m of p.parsed) {
+        await api("/workout-menus", { method: "POST", body: { name: m.name, items: m.items } });
+      }
+      menuPaste = null;
+      await showMessages([`メニューを ${p.parsed.length}つ 登録した！`, "筋トレを始めるときに えらべるよ。"]);
+      await render();
+    }),
+  );
+}
+
+// メニューを 作る・直す
+function renderMenuEditor() {
+  const m = menuEdit;
+  const partOptions = (sel) =>
+    Object.entries(workoutMenus.parts).map(([k, label]) => `<option value="${k}" ${k === sel ? "selected" : ""}>${label}</option>`).join("");
+  const num = (name, value) =>
+    `<select data-f="${name}">${Array.from({ length: 10 }, (_, i) => i + 1).map((n) => `<option ${n === value ? "selected" : ""}>${n}</option>`).join("")}</select>`;
+  view.innerHTML = `
+    <section class="window">
+      <h2>${m.id ? "メニューを直す" : "メニューを作る"}</h2>
+      <input id="wmenu-name" maxlength="30" placeholder="名前（例：下半身の日）" value="${esc(m.name)}" style="width:100%">
+      <datalist id="exercise-names">${workoutMenus.exercises.map((n) => `<option value="${esc(n)}">`).join("")}</datalist>
+      <div id="wmenu-items">${m.items
+        .map(
+          (it, i) => `<div class="wmenu-item" data-i="${i}">
+            <div class="row">
+              <b>${i + 1}.</b>
+              <input data-f="exercise" list="exercise-names" class="grow" maxlength="30" placeholder="種目" value="${esc(it.exercise)}">
+              <button type="button" class="small" data-move="-1" ${i === 0 ? "disabled" : ""} aria-label="上へ">↑</button>
+              <button type="button" class="small" data-move="1" ${i === m.items.length - 1 ? "disabled" : ""} aria-label="下へ">↓</button>
+              <button type="button" class="small danger" data-remove-item aria-label="消す">×</button>
+            </div>
+            <div class="row wmenu-sub">
+              ${num("sets_min", it.sets_min)}〜${num("sets_max", it.sets_max)}セット
+              <input data-f="reps" maxlength="30" placeholder="回数（例：5〜8回）" value="${esc(it.reps)}" style="width:9em">
+              <select data-f="part" aria-label="部位（新しい種目のとき）">${partOptions(it.part)}</select>
+            </div>
+            <input data-f="alternatives" maxlength="60" placeholder="または（代わりの種目。なくてもOK）" value="${esc(it.alternatives)}" style="width:100%">
+            <input data-f="note" maxlength="80" placeholder="注意書き（なくてもOK）" value="${esc(it.note)}" style="width:100%">
+          </div>`,
+        )
+        .join("")}</div>
+      <button type="button" class="small" id="wmenu-add-item" style="margin-top:8px">＋種目を足す</button>
+      <p class="hint">種目の名前が 今ない種目なら、新しく作るよ（そのときは 部位も見てね）。</p>
+      <div class="row" style="margin-top:8px">
+        <button class="primary grow" id="wmenu-save">保存</button>
+        <button class="small danger" id="wmenu-cancel">やめる</button>
+      </div>
+    </section>`;
+  const read = () => {
+    m.name = document.getElementById("wmenu-name").value;
+    view.querySelectorAll(".wmenu-item").forEach((row) => {
+      const it = m.items[Number(row.dataset.i)];
+      row.querySelectorAll("[data-f]").forEach((el) => {
+        it[el.dataset.f] = el.dataset.f.startsWith("sets_") ? Number(el.value) : el.value;
+      });
+    });
+  };
+  view.querySelectorAll(".wmenu-item").forEach((row) => {
+    const i = Number(row.dataset.i);
+    row.querySelectorAll("[data-move]").forEach((b) =>
+      b.addEventListener("click", () => {
+        read();
+        const j = i + Number(b.dataset.move);
+        [m.items[i], m.items[j]] = [m.items[j], m.items[i]];
+        renderMenuEditor();
+      }),
+    );
+    row.querySelector("[data-remove-item]").addEventListener("click", () => {
+      read();
+      m.items.splice(i, 1);
+      if (!m.items.length) m.items.push(blankMenuItem());
+      renderMenuEditor();
+    });
+  });
+  document.getElementById("wmenu-add-item").addEventListener("click", () => {
+    read();
+    m.items.push(blankMenuItem());
+    renderMenuEditor();
+  });
+  document.getElementById("wmenu-cancel").addEventListener("click", () => {
+    menuEdit = null;
+    render();
+  });
+  document.getElementById("wmenu-save").addEventListener("click", (e) =>
+    run(async () => {
+      read();
+      const items = m.items
+        .filter((it) => it.exercise.trim())
+        .map((it) => ({ ...it, alternatives: it.alternatives ? String(it.alternatives).split(/[、,，]/).map((s) => s.trim()).filter(Boolean) : [] }));
+      if (!m.name.trim()) throw new Error("メニューの名前を入れてね");
+      if (!items.length) throw new Error("種目を1つ以上 入れてね");
+      e.target.disabled = true;
+      try {
+        await api(m.id ? `/workout-menus/${m.id}` : "/workout-menus", { method: m.id ? "PUT" : "POST", body: { name: m.name, items } });
+      } finally {
+        e.target.disabled = false;
+      }
+      if (menuPaste && m.fromPaste !== undefined) menuPaste.parsed.splice(m.fromPaste, 1); // 貼りつけた中の 保存したもの
+      if (menuPaste && !menuPaste.parsed.length) menuPaste = null;
+      menuEdit = null;
+      await render();
+    }),
+  );
+}
+
+// 筋トレ中：メニューの一覧（たたむと 次の種目だけ 1行）
+function menuRunSection(w) {
+  if (!w.menu) {
+    if (!workoutMenus.menus.length) return "";
+    return `<section class="window menu-run">
+      <div class="row"><span class="hint" style="margin:0">メニュー</span>
+        <select id="menu-run-choose" class="grow"><option value="">使わない</option>${workoutMenus.menus
+          .map((m) => `<option value="${m.id}">${esc(m.name)}</option>`)
+          .join("")}</select></div>
+    </section>`;
+  }
+  const items = w.menu.items;
+  const next = items.find((i) => i.done < i.sets_min) ?? items.find((i) => i.done < i.sets_max);
+  const allDone = !next;
+  const row = (i, n) => {
+    const state = i.done >= i.sets_min ? "done" : i === next ? "next" : "";
+    return `<button type="button" class="menu-run-item ${state}" data-menu-pick="${n}">
+      <span>${state === "done" ? "✓" : `${n + 1}.`} ${esc(i.name)}${i.alternatives.length ? `<small class="hint">（または ${i.alternatives.map((a) => esc(a.name)).join("・")}）</small>` : ""}</span>
+      <small>${esc(i.reps)} ${i.done}/${i.sets_min === i.sets_max ? i.sets_max : `${i.sets_min}〜${i.sets_max}`}</small>
+    </button>`;
+  };
+  // たたんでいるときは 1行：「次の種目」のボタン（押すと えらぶ）と「一覧」
+  return `<section class="window menu-run">
+    <div class="row menu-run-head">
+      ${
+        allDone
+          ? `<span class="grow ok">${esc(w.menu.name)}：全部できた！</span>`
+          : `<button type="button" class="small grow menu-run-next" data-menu-pick="${items.indexOf(next)}">
+               <span class="hint">次：</span>${esc(next.name)}（${next.done}/${next.sets_max}）</button>`
+      }
+      <button type="button" class="small" id="menu-run-toggle">${menuRunOpen ? "閉じる" : `${esc(w.menu.name)} ▼`}</button>
+    </div>
+    ${
+      menuRunOpen
+        ? `<div class="menu-run-list">${items.map(row).join("")}</div>
+           <div class="row" style="margin-top:6px"><button type="button" class="small" id="menu-run-stop">メニューをやめる</button></div>`
+        : ""
+    }
+  </section>`;
+}
+
+// えらんでいる種目が メニューにあれば、目安と 注意書きを出す
+function menuTargetLine(w, selected) {
+  const item = w.menu?.items.find((i) => i.exercise_id === selected.id || i.alternatives.some((a) => a.id === selected.id));
+  if (!item) return "";
+  return `<p class="hint menu-target">メニュー：${esc(item.reps)} × ${setsText(item)}（今 ${item.done}セット）${item.note ? `・${esc(item.note)}` : ""}</p>`;
+}
+
+function bindMenuRun(w, ex) {
+  document.getElementById("menu-run-toggle")?.addEventListener("click", () => {
+    menuRunOpen = !menuRunOpen;
+    renderActive(w, ex);
+  });
+  document.getElementById("menu-run-choose")?.addEventListener("change", (e) =>
+    run(async () => {
+      await api(`/workouts/${w.id}/menu`, { method: "PUT", body: { menu_id: e.target.value ? Number(e.target.value) : null } });
+      await render();
+    }),
+  );
+  document.getElementById("menu-run-stop")?.addEventListener("click", () =>
+    run(async () => {
+      await api(`/workouts/${w.id}/menu`, { method: "PUT", body: { menu_id: null } });
+      await render();
+    }),
+  );
+  view.querySelectorAll("[data-menu-pick]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const item = w.menu.items[Number(btn.dataset.menuPick)];
+      const id = item.used_id ?? item.exercise_id; // 代わりの種目を やっていれば そちら
+      const target = ex.exercises.find((e) => e.id === id);
+      if (!target) return;
+      part = target.part;
+      exerciseId = target.id;
+      exerciseChanged = true;
+      renderActive(w, ex);
+      document.getElementById("set-form")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }),
+  );
 }
 
 function historySection(history) {
@@ -1240,7 +1566,18 @@ function historySection(history) {
 }
 
 // ---- 記録中の画面 ----
+let menuAutoPickedFor = null; // 次の種目を 自動で えらんだ 筋トレの id（1回だけ）
+
 function renderActive(w, ex) {
+  if (w.menu && menuAutoPickedFor !== w.id) {
+    menuAutoPickedFor = w.id;
+    const next = w.menu.items.find((i) => i.done < i.sets_min) ?? w.menu.items.find((i) => i.done < i.sets_max);
+    const target = next && ex.exercises.find((e) => e.id === (next.used_id ?? next.exercise_id));
+    if (target) {
+      part = target.part;
+      exerciseId = target.id;
+    }
+  }
   const exercises = ex.exercises.filter((e) => e.part === part);
   if (!exercises.some((e) => e.id === exerciseId)) exerciseId = exercises[0]?.id ?? null;
   // 種目を変えたとき：今日まだ1セットもやっていない種目なら、休憩タイマーを片づける
@@ -1282,6 +1619,7 @@ function renderActive(w, ex) {
       <p class="clock" id="clock">--:--</p>
       <p class="hint">開始 ${hhmm(w.started_at)}${plannedEnd ? `（あとから記録：終了 ${hhmm(plannedEnd)}）` : ""}</p>
     </section>
+    ${menuRunSection(w)}
     <section class="window">
       <h2>セットを追加</h2>
       <div class="row part-row">
@@ -1298,7 +1636,7 @@ function renderActive(w, ex) {
           selected
             ? `<p class="hint">前回：${selected.last ? `${dayLabel(selected.last.day)} ${selected.last.sets.map(esc).join("、")}` : "まだ記録なし"}${
                 selected.best ? ` ／ 自己ベスト：${esc(selected.best)}` : ""
-              }</p>`
+              }</p>${menuTargetLine(w, selected)}`
             : ""
         }
         <div class="row" style="margin-top:6px">${setInputs}<button class="grow">追加</button></div>
@@ -1390,6 +1728,7 @@ function renderActive(w, ex) {
   });
 
   const warmup = document.getElementById("warmup-sets");
+  bindMenuRun(w, ex);
   document.getElementById("set-form").addEventListener("submit", (e) => {
     e.preventDefault();
     if (!exerciseId) return;
@@ -1464,11 +1803,14 @@ async function render() {
       loadPartner();
       return renderMeals(meals);
     }
-    const data = await api("/workouts");
+    const [data, menus] = await Promise.all([api("/workouts"), api("/workout-menus")]);
+    workoutMenus = menus;
     logoutBtn.hidden = false;
     tabsEl.hidden = false;
     loadPartner();
     loadPush();
+    if (menuEdit) return renderMenuEditor();
+    if (menuPaste) return renderMenuPaste();
     if (!data.current) {
       if (rest) stopRest(); // 筋トレが終わっていたら タイマーも片づける
       return renderStart(data);
