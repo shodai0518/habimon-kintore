@@ -297,3 +297,12 @@ def test_favorites_keep_their_order(client, monkeypatch):
     client.post(f"/api/menu/{ids['オイコス']}/eat", json={}); tick()  # 食べても お気に入りの順は 変わらない
     client.post(f"/api/menu/{ids['サラダ']}/eat", json={}); tick()
     assert names() == ["プロテイン", "オイコス", "サラダ", "唐揚げ定食"]  # ほかは 最近食べた順
+
+
+
+def test_clean_comment_removes_source_links():
+    """ネット検索の出どころのリンクは ひとことから外す。"""
+    text = "マクドナルド公式の数値。([mcdonalds.co.jp](https://www.mcdonalds.co.jp/x?utm_source=openai))"
+    assert food_ai.clean_comment(text) == "マクドナルド公式の数値。"
+    assert food_ai.clean_comment("すき家公式値 https://example.com/a.pdf") == "すき家公式値"
+    assert food_ai.clean_comment("ご飯は並盛として計算") == "ご飯は並盛として計算"

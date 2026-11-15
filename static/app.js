@@ -908,7 +908,7 @@ function drawDraftTotal() {
 async function analyzeMeal(button, answers) {
   button.disabled = true;
   const label = button.textContent;
-  button.textContent = "AIが見ている…";
+  button.textContent = "AIが見ている…（お店のメニューは調べるので少しかかるよ）";
   try {
     const body = { images: mealPhotos, note: mealNote };
     if (answers) Object.assign(body, { questions: mealDraft.questions, answers });

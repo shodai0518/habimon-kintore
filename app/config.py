@@ -75,6 +75,7 @@ FOOD_ITEM_AI_DAILY_LIMIT = 60  # 品目を1つだけ 計算し直す回数（文
 FOOD_MAX_IMAGES = 4  # 1回に送れる写真の数（真上と斜め、いくつかの商品の成分表示 など）
 FOOD_IMAGE_MAX_BYTES = 1_500_000  # 写真1枚の大きさの上限（画面側で 小さくしてから送る）
 FOOD_MAX_QUESTIONS = 2  # AIが聞き返せる 質問の数
+FOOD_MAX_SEARCHES = 3  # 1回の見積もりで お店の公式の栄養成分を ネット検索できる回数
 FOOD_MAX_ITEMS = 15  # 1回の食事の 品目の数
 FOOD_HISTORY_DAYS = 14  # 履歴に出す日数
 MENU_MAX = 100  # マイメニューに登録できる数
